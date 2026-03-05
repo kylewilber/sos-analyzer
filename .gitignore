@@ -1,0 +1,5 @@
+reports/
+*.prev
+*.prev2
+*.tar.gz
+*.tar.xz
