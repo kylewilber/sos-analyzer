@@ -26,7 +26,7 @@ kernel=$(echo "$uname_str" | awk '{print $3}')
 arch=$(echo "$uname_str"   | awk '{print $NF}')
 
 # ─── CPU count from SAR header ───────────────────────────────────────────────
-sar_file=$(ls "$SOS/sos_commands/sar/sar"[0-9]* 2>/dev/null | head -1)
+sar_file=$(find "$SOS/sos_commands/sar/" -maxdepth 1 -name 'sar[0-9]*' 2>/dev/null | sort | head -1)
 cpu_count=""
 if [[ -n "$sar_file" ]]; then
     cpu_count=$(grep -m1 '([0-9]* CPU)' "$sar_file" | grep -oP '\d+(?= CPU)')

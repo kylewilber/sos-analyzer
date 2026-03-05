@@ -495,7 +495,7 @@ for n in nodes:
     client_evs = logs.get('client_events', [])
     client_ips = logs.get('client_ips', [])
     html += f'<div class="card"><div class="card-title">Log Events</div>'
-    html += f'<div class="{log_fc}">{logs.get("critical_count",0)} critical &nbsp; {logs.get("warning_count",0)} warnings &nbsp; {logs.get("client_event_count",0)} client events</div>'
+    html += f'<div class="{log_fc}">{len(crit_evs)} critical &nbsp; {len(warn_evs)} warnings &nbsp; {len(client_evs)} client events</div>'
     if crit_evs:
         html += f'<details><summary>Show critical events ({len(crit_evs)})</summary><pre>'
         html += '\n'.join(str(e)[:200] for e in crit_evs[-10:])

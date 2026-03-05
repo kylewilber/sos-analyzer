@@ -34,17 +34,26 @@ fi
 mem_flag=$(flag_mem "$mem_used_pct")
 
 # ─── CPU — from SAR (today's file, 'all' average) ────────────────────────────
-sar_file=$(ls "$SOS/sos_commands/sar/sar"[0-9]* 2>/dev/null | tail -1)
+sar_file=$(find "$SOS/sos_commands/sar/" -maxdepth 1 -name 'sar[0-9]*' 2>/dev/null | sort | tail -1)
 cpu_usr="N/A"; cpu_sys="N/A"; cpu_idle="N/A"; cpu_iowait="N/A"; cpu_count="unknown"
 if [[ -n "$sar_file" ]]; then
     cpu_count=$(grep -m1 '([0-9]* CPU)' "$sar_file" | grep -oP '\d+(?= CPU)')
-    # Average line: last "Average:" row for 'all'
-    avg_line=$(grep '^Average:' "$sar_file" | grep ' all ' | tail -1)
+    # Average line: last "Average:" row for 'all' (normalized across all CPUs)
+    avg_line=$(grep '^Average:' "$sar_file" | grep -E '\ball\b' | tail -1)
     if [[ -n "$avg_line" ]]; then
         cpu_usr=$(echo "$avg_line"    | awk '{print $3}')
         cpu_sys=$(echo "$avg_line"    | awk '{print $5}')
         cpu_iowait=$(echo "$avg_line" | awk '{print $6}')
         cpu_idle=$(echo "$avg_line"   | awk '{print $NF}')
+    fi
+    # Normalize if values are clearly summed across cores (> 100%)
+    if [[ -n "$cpu_count" && "$cpu_count" =~ ^[0-9]+$ && "$cpu_usr" =~ ^[0-9]+\. ]]; then
+        if awk "BEGIN {exit !($cpu_usr > 100)}"; then
+            cpu_usr=$(awk  "BEGIN {printf \"%.2f\", $cpu_usr/$cpu_count}")
+            cpu_sys=$(awk  "BEGIN {printf \"%.2f\", $cpu_sys/$cpu_count}")
+            cpu_iowait=$(awk "BEGIN {printf \"%.2f\", $cpu_iowait/$cpu_count}")
+            cpu_idle=$(awk "BEGIN {printf \"%.2f\", $cpu_idle/$cpu_count}")
+        fi
     fi
 fi
 
