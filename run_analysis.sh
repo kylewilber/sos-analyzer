@@ -9,6 +9,7 @@
 # Options:
 #   --output <dir>        Output directory (default: ./sos-output)
 #   --format <fmt>        Export format: csv|html|pdf|all (default: all)
+#   --jobs <n>            Parallel parser jobs (default: nproc)
 #   --keep-extracted      Don't delete extracted report dirs after parsing
 #   --no-export           Skip export step (only generate JSON/txt per node)
 
@@ -22,6 +23,7 @@ OUTPUT_DIR="./sos-output"
 EXPORT_FORMAT="all"
 KEEP_EXTRACTED=0
 NO_EXPORT=0
+JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 INPUTS=()
 
 # ─── Parse arguments ──────────────────────────────────────────────────────────
@@ -29,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --output)         OUTPUT_DIR="$2"; shift 2 ;;
         --format)         EXPORT_FORMAT="$2"; shift 2 ;;
+        --jobs)           JOBS="$2"; shift 2 ;;
         --keep-extracted) KEEP_EXTRACTED=1; shift ;;
         --no-export)      NO_EXPORT=1; shift ;;
         --help|-h)
@@ -37,6 +40,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --output <dir>        Output base directory (default: ./sos-output)"
             echo "  --format <fmt>        csv|html|pdf|all (default: all)"
+            echo "  --jobs <n>            Parallel parser jobs (default: nproc)"
             echo "  --keep-extracted      Retain extracted SOS directories"
             echo "  --no-export           Skip CSV/HTML/PDF generation"
             exit 0 ;;
@@ -48,7 +52,8 @@ done
 
 RESULTS_DIR="$OUTPUT_DIR/nodes"
 CLUSTER_DIR="$OUTPUT_DIR/cluster"
-mkdir -p "$RESULTS_DIR" "$CLUSTER_DIR"
+TMP_DIR="$OUTPUT_DIR/.tmp"
+mkdir -p "$RESULTS_DIR" "$CLUSTER_DIR" "$TMP_DIR"
 
 # ─── Helper: extract tarball, return sos report root path ────────────────────
 extract_tarball() {
@@ -56,7 +61,6 @@ extract_tarball() {
     local extract_to="$2"
     log_info "Extracting: $(basename "$tb") ..."
     tar -xf "$tb" -C "$extract_to" --no-same-owner 2>/dev/null
-    # tar creates its own sosreport-* dir inside extract_to — find version.txt at depth 2
     find "$extract_to" -maxdepth 2 -name "version.txt" -exec dirname {} \; 2>/dev/null | head -1
 }
 
@@ -67,20 +71,17 @@ mkdir -p "$extract_to"
 
 for input in "${INPUTS[@]}"; do
     if [[ -f "$input" && "$input" =~ \.(tar\.xz|tar\.gz|tar\.bz2|tgz)$ ]]; then
-        # Single tarball
         extracted=$(extract_tarball "$input" "$extract_to")
         if [[ -n "$extracted" ]]; then
             sos_dirs+=("$extracted")
         else
             log_warn "Could not find sos report root inside $input — skipping"
         fi
-
     elif [[ -d "$input" ]]; then
-        if [[ -f "$input/version.txt" || -f "$input/hostname" ]] ; then
-            # Already-extracted single report
+        if [[ -f "$input/version.txt" || -f "$input/hostname" ]]; then
             sos_dirs+=("$input")
         else
-            # Directory containing multiple tarballs — extract each one
+            # Tarballs in directory
             while IFS= read -r tb; do
                 extracted=$(extract_tarball "$tb" "$extract_to")
                 if [[ -n "$extracted" ]]; then
@@ -91,10 +92,11 @@ for input in "${INPUTS[@]}"; do
             done < <(find "$input" -maxdepth 1 -type f \( \
                 -name "*.tar.xz" -o -name "*.tar.gz" \
                 -o -name "*.tgz"  -o -name "*.tar.bz2" \))
-	    while IFS= read -r d; do
-		    sos_dirs+=("$d")
-	    done < <(find "$input" -maxdepth 1 -type d \( \
-	    	-name "sosreport-*" \) 2>/dev/null | sort)	    
+            # Already-extracted subdirs
+            while IFS= read -r d; do
+                sos_dirs+=("$d")
+            done < <(find "$input" -maxdepth 1 -type d \( \
+                -name "sosreport-*" \) 2>/dev/null | sort)
         fi
     else
         log_warn "Skipping unrecognized input: $input"
@@ -106,28 +108,31 @@ if [[ ${#sos_dirs[@]} -eq 0 ]]; then
     exit 1
 fi
 
-log_info "Found ${#sos_dirs[@]} SOS report(s) to process"
+log_info "Found ${#sos_dirs[@]} SOS report(s) to process (parallel jobs: $JOBS)"
 echo ""
 
-# ─── Parse each node ──────────────────────────────────────────────────────────
+# ─── Per-node processing function ────────────────────────────────────────────
 chmod +x "$SCRIPT_DIR/parsers/"*.sh
 
-parsed=0
-failed=0
-for sos in "${sos_dirs[@]}"; do
-    # Support both standard sos layout (hostname) and raw layout (proc/sys/kernel/hostname)
+process_node() {
+    local sos="$1"
+    local results_dir="$2"
+    local tmp_dir="$3"
+    local script_dir="$4"
+
+    local hostname
     hostname=$(cat "$sos/hostname" 2>/dev/null | tr -d '[:space:]')
     [[ -z "$hostname" ]] && hostname=$(cat "$sos/proc/sys/kernel/hostname" 2>/dev/null | tr -d '[:space:]')
     [[ -z "$hostname" ]] && hostname=$(basename "$sos")
 
-    node_out="$RESULTS_DIR/$hostname"
+    local node_out="$results_dir/$hostname"
     mkdir -p "$node_out"
 
     echo -e "${BOLD}── Processing: $hostname ──────────────────────────────────────────────${RESET}"
 
-    ok=1
+    local ok=1
     for parser in identity resources services network logs rpms lustre; do
-        script="$SCRIPT_DIR/parsers/parse_${parser}.sh"
+        local script="$script_dir/parsers/parse_${parser}.sh"
         if [[ -x "$script" ]]; then
             if ! bash "$script" "$sos" "$node_out" 2>/dev/null; then
                 log_warn "Parser $parser failed for $hostname"
@@ -147,13 +152,29 @@ for sos in "${sos_dirs[@]}"; do
         cat "$node_out/rpms.txt"      2>/dev/null
     } > "$node_out/node_summary.txt"
 
+    # Signal completion via tmp file
     if (( ok == 1 )); then
-        (( parsed++ )) || true
+        touch "$tmp_dir/ok_${hostname}"
     else
-        (( failed++ )) || true
+        touch "$tmp_dir/fail_${hostname}"
     fi
     echo ""
-done
+}
+
+export -f process_node
+export BOLD RESET
+
+# ─── Run nodes in parallel ────────────────────────────────────────────────────
+# Use xargs for portable parallelism (works on Linux and macOS)
+printf '%s\n' "${sos_dirs[@]}" | \
+    xargs -P "$JOBS" -I{} bash -c \
+        'process_node "$1" "$2" "$3" "$4"' _ \
+        {} "$RESULTS_DIR" "$TMP_DIR" "$SCRIPT_DIR"
+
+# ─── Count results ────────────────────────────────────────────────────────────
+parsed=$(find "$TMP_DIR" -name 'ok_*'   2>/dev/null | wc -l | tr -d ' ')
+failed=$(find "$TMP_DIR" -name 'fail_*' 2>/dev/null | wc -l | tr -d ' ')
+rm -rf "$TMP_DIR"
 
 echo ""
 log_info "Parsed: $parsed nodes  |  Failed: $failed"
