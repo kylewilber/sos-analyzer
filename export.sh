@@ -276,16 +276,37 @@ html = f"""<!DOCTYPE html>
 
 # ── Cluster overview table ──
 html += '<h2>Cluster Overview</h2>\n'
-html += '<table><tr><th>Hostname</th><th>OS</th><th>Kernel</th><th>CPUs</th><th>Uptime</th><th>Memory</th><th>Failed Svcs</th><th>Log Events</th><th>Lustre</th><th>Status</th></tr>\n'
+html += '<table><tr><th>Hostname</th><th>OS</th><th>Kernel</th><th>CPUs</th><th>Uptime</th><th>Memory</th><th>Failed Svcs</th><th>Log Events</th><th>IB</th><th>Lustre</th><th>Status</th></tr>\n'
+import re as _re
 for n in nodes:
     ident = n['identity']
     res   = n['resources']
     svc   = n['services']
     logs  = n['logs']
     lus   = n['lustre']
+    net   = n['network']
     mem   = res.get('memory', {})
     fc    = flag_class(n['overall_flag'])
     badge = f'<span class="badge badge-{flag_class(n["overall_flag"])}">{flag_icon(n["overall_flag"])} {n["overall_flag"]}</span>'
+    # IB summary for overview
+    ib_ports = net.get('infiniband', [])
+    ib_flag  = net.get('ib_flag', 'OK')
+    ib_fc    = flag_class(ib_flag)
+    total_ib_errors = sum(p.get('error_count', 0) for p in ib_ports)
+    rate_str = ib_ports[0].get('rate', '—') if ib_ports else '—'
+    m = _re.match(r'(\d+)Gb/sec\((\d+X\w+)\)', rate_str.replace(' ',''))
+    if m:
+        rate_str = f'{m.group(1)}G {m.group(2)}'
+    ib_cell = f'{rate_str} / {len(ib_ports)}p / err:{total_ib_errors}'
+    # Log events summary
+    log_parts = []
+    if logs.get('critical_count', 0) > 0:
+        log_parts.append(f'{logs.get("critical_count",0)} crit')
+    if logs.get('warning_count', 0) > 0:
+        log_parts.append(f'{logs.get("warning_count",0)} warn')
+    if logs.get('client_event_count', 0) > 0:
+        log_parts.append(f'{logs.get("client_event_count",0)} client')
+    log_cell = ' / '.join(log_parts) if log_parts else 'OK'
     html += f'''<tr>
       <td class="mono">{ident.get("hostname","?")}</td>
       <td>{ident.get("os_name","?")} {ident.get("os_version","")}</td>
@@ -293,8 +314,9 @@ for n in nodes:
       <td>{ident.get("cpu_count","?")}</td>
       <td>{ident.get("uptime_days","?")}d</td>
       <td class="{flag_class(mem.get("flag","OK"))}">{mem.get("used_pct","?")}%</td>
-      <td class="{flag_class(svc.get("flag","OK"))}">{svc.get("failed_count",0)}</td>
-      <td class="{flag_class(logs.get("flag","OK"))}">{logs.get("critical_count",0)} crit / {logs.get("warning_count",0)} warn</td>
+      <td class="{flag_class(svc.get("flag","OK"))}">{svc.get("failed_count",0)} ({svc.get("ignored_count",0)} ignored)</td>
+      <td class="{flag_class(logs.get("flag","OK"))}">{log_cell}</td>
+      <td class="{ib_fc}">{ib_cell}</td>
       <td class="{flag_class(lus.get("flag","OK"))}">{lus.get("flag","N/A")}</td>
       <td>{badge}</td>
     </tr>\n'''
@@ -337,6 +359,7 @@ if mounts:
 # ── Failed services diff ──
 html += '<h2>Failed Services — All Nodes</h2>\n'
 any_failed = any(n['services'].get('failed_count', 0) > 0 for n in nodes)
+any_ignored = any(n['services'].get('ignored_count', 0) > 0 for n in nodes)
 if any_failed:
     html += '<table><tr><th>Hostname</th><th>Unit</th><th>State</th><th>Description</th></tr>\n'
     for n in nodes:
@@ -347,15 +370,64 @@ if any_failed:
     html += '</table>\n'
 else:
     html += '<p class="ok">&#9989; No failed services across any node.</p>\n'
+if any_ignored:
+    html += '<details><summary style="cursor:pointer;color:#888">&#9432; Ignored failed services (see conf/ignore_services.txt)</summary>\n'
+    html += '<table><tr><th>Hostname</th><th>Unit</th><th>State</th><th>Description</th></tr>\n'
+    for n in nodes:
+        hn = n['identity'].get('hostname','?')
+        for u in n['services'].get('ignored_units', []):
+            html += f'<tr><td class="mono">{hn}</td><td class="mono" style="color:#888">{u.get("unit","")}</td>'
+            html += f'<td style="color:#888">{u.get("active","")}/{u.get("sub","")}</td><td style="color:#888">{u.get("description","")}</td></tr>\n'
+    html += '</table></details>\n'
 
-# ── Network interfaces diff ──
-html += '<h2>Network Interfaces — All Nodes</h2>\n'
-html += '<table><tr><th>Hostname</th><th>Interface</th><th>IP/CIDR</th></tr>\n'
+# ── Network & InfiniBand summary ──
+html += '<h2>Network &amp; InfiniBand — All Nodes</h2>\n'
+html += '<table><tr><th>Hostname</th><th>Mgmt IP</th><th>mlxib0</th><th>mlxib1</th><th>IB Rate / Width</th><th>FW Version</th><th>Port Errors</th><th>Error Detail</th><th>IB Flag</th></tr>\n'
 for n in nodes:
-    hn = n['identity'].get('hostname','?')
-    for iface in n['network'].get('interfaces', []):
-        html += f'<tr><td class="mono">{hn}</td><td class="mono">{iface.get("interface","")}</td>'
-        html += f'<td class="mono">{iface.get("ip_cidr","")}</td></tr>\n'
+    hn  = n['identity'].get('hostname','?')
+    net = n['network']
+    ifaces = net.get('interfaces', [])
+    iface_map = {}
+    for iface in ifaces:
+        name = iface.get('interface','')
+        ip   = iface.get('ip_cidr','').split('/')[0]
+        iface_map[name] = ip
+    mgmt_ip = iface_map.get('mgmt0', iface_map.get('eth0', iface_map.get('eno1', '—')))
+    mlxib0  = iface_map.get('mlxib0', '—')
+    mlxib1  = iface_map.get('mlxib1', '—')
+    ib_ports = net.get('infiniband', [])
+    ib_flag  = net.get('ib_flag', 'OK')
+    fc       = flag_class(ib_flag)
+    # Rate/width from first port
+    rate_str = ib_ports[0].get('rate', '—') if ib_ports else '—'
+    m = _re.match(r'(\d+)Gb/sec\((\d+X\w+)\)', rate_str.replace(' ',''))
+    if m:
+        rate_str = f'{m.group(1)} Gb/sec &nbsp;&#183;&nbsp; {m.group(2)}'
+    # FW version
+    fw = ib_ports[0].get('firmware', '—') if ib_ports else '—'
+    # Per-port error summary
+    port_err_cells = []
+    err_detail_cells = []
+    for p in ib_ports:
+        errs = p.get('error_count', 0)
+        detail = p.get('error_detail', '')
+        ec = 'crit' if errs > 0 else 'ok'
+        port_err_cells.append(f'<span class="{ec}">{p.get("ca","?")}:{errs}</span>')
+        if detail:
+            # Format each counter on its own line
+            detail_fmt = '<br>'.join(f'{p.get("ca","?")}/{c}' for c in detail.split(','))
+            err_detail_cells.append(detail_fmt)
+    total_errors = sum(p.get('error_count', 0) for p in ib_ports)
+    err_class = 'crit' if total_errors > 0 else 'ok'
+    port_errs_html = ' &nbsp; '.join(port_err_cells) if port_err_cells else '—'
+    err_detail_html = '<br>'.join(err_detail_cells) if err_detail_cells else '—'
+    html += f'<tr><td class="mono">{hn}</td><td class="mono">{mgmt_ip}</td>'
+    html += f'<td class="mono">{mlxib0}</td><td class="mono">{mlxib1}</td>'
+    html += f'<td>{rate_str}</td>'
+    html += f'<td style="font-size:11px">{fw}</td>'
+    html += f'<td>{port_errs_html}</td>'
+    html += f'<td class="{err_class}" style="font-size:11px">{err_detail_html}</td>'
+    html += f'<td class="{fc}">{ib_flag}</td></tr>\n'
 html += '</table>\n'
 
 # ── Lustre summary ──
@@ -420,13 +492,54 @@ for n in nodes:
     log_fc = flag_class(logs.get('flag','OK'))
     crit_evs = logs.get('critical_events', [])
     warn_evs = logs.get('warning_events', [])
+    client_evs = logs.get('client_events', [])
+    client_ips = logs.get('client_ips', [])
     html += f'<div class="card"><div class="card-title">Log Events</div>'
-    html += f'<div class="{log_fc}">{logs.get("critical_count",0)} critical &nbsp; {logs.get("warning_count",0)} warnings</div>'
+    html += f'<div class="{log_fc}">{logs.get("critical_count",0)} critical &nbsp; {logs.get("warning_count",0)} warnings &nbsp; {logs.get("client_event_count",0)} client events</div>'
     if crit_evs:
         html += f'<details><summary>Show critical events ({len(crit_evs)})</summary><pre>'
         html += '\n'.join(str(e)[:200] for e in crit_evs[-10:])
         html += '</pre></details>'
+    if client_ips:
+        ip_summary = ', '.join(f'{x["ip"]} ({x["count"]})' for x in client_ips)
+        html += f'<details><summary>Client events by IP: {ip_summary}</summary><pre>'
+        html += '\n'.join(str(e)[:200] for e in client_evs[-10:])
+        html += '</pre></details>'
     html += '</div>'
+
+    # InfiniBand card
+    net = n['network']
+    ib_ports = net.get('infiniband', [])
+    ib_flag  = net.get('ib_flag', 'OK')
+    ib_fc    = flag_class(ib_flag)
+    if ib_ports:
+        html += f'<div class="card"><div class="card-title">InfiniBand</div>'
+        html += f'<div class="{ib_fc}" style="margin-bottom:8px">Overall: {ib_flag}</div>'
+        html += '<table style="font-size:11px;width:100%"><tr><th>Port</th><th>State</th><th>Rate / Width</th><th>FW</th><th>Total Errors</th><th>Error Counters</th></tr>'
+        for p in ib_ports:
+            pfc = flag_class(p.get('flag','OK'))
+            errs = p.get('error_count', 0)
+            err_detail = p.get('error_detail','')
+            rate = p.get('rate','—')
+            m = _re.match(r'(\d+)Gb/sec\((\d+X\w+)\)', rate.replace(' ',''))
+            if m:
+                rate = f'{m.group(1)} Gb/sec {m.group(2)}'
+            fw = p.get('firmware','—')
+            err_class = 'crit' if errs > 0 else 'ok'
+            # Format error counters as individual lines
+            if err_detail:
+                counter_lines = '<br>'.join(
+                    f'<span class="crit">{c.split(":")[0]}: {c.split(":")[1]}</span>'
+                    for c in err_detail.split(',') if ':' in c
+                )
+            else:
+                counter_lines = '<span class="ok">clean</span>'
+            html += f'<tr class="{pfc}"><td class="mono">{p.get("ca","?")}</td>'
+            html += f'<td>{p.get("state","?")}</td><td>{rate}</td>'
+            html += f'<td style="font-size:10px">{fw}</td>'
+            html += f'<td class="{err_class}">{errs}</td>'
+            html += f'<td style="font-size:10px">{counter_lines}</td></tr>'
+        html += '</table></div>'
 
     html += '</div></div>\n'  # end node-body, node-card
 

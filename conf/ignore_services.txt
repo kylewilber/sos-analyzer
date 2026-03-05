@@ -1,0 +1,8 @@
+# Services to ignore when flagging node status.
+# These services will still appear in the report but will not drive WARNING/CRITICAL.
+# One service name per line (matched against unit name, partial match).
+# Lines starting with # are comments.
+
+powerman
+iperf
+iperf3
