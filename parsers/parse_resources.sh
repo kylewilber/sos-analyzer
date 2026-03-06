@@ -36,6 +36,16 @@ mem_flag=$(flag_mem "$mem_used_pct")
 # ─── CPU — from SAR (today's file, 'all' average) ────────────────────────────
 cpu_usr="N/A"; cpu_sys="N/A"; cpu_idle="N/A"; cpu_iowait="N/A"
 cpu_count=$(grep -c "^processor" "$SOS/proc/cpuinfo" 2>/dev/null)
+if [[ -z "$cpu_count" || "$cpu_count" == "0" ]]; then
+    dmi="$SOS/sos_commands/hardware/dmidecode"
+    if [[ -f "$dmi" ]]; then
+        threads=$(grep 'Thread Count:' "$dmi" | awk '{print $NF}' | head -1)
+        sockets=$(grep -c 'Socket Designation:.*CPU' "$dmi" 2>/dev/null || echo 1)
+        if [[ -n "$threads" && "$threads" =~ ^[0-9]+$ ]]; then
+            cpu_count=$(( threads * sockets ))
+        fi
+    fi
+fi
 [[ -z "$cpu_count" || "$cpu_count" == "0" ]] && cpu_count="unknown"
 
 # Try plain-text SAR files first, then skip XML (requires sadf which may not be present)
