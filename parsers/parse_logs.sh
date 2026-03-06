@@ -116,6 +116,7 @@ build_json_arr() {
     local out="["
     local first=1
     for item in "$@"; do
+        [[ -z "$item" ]] && continue
         [[ $first -eq 0 ]] && out+=","
         out+="\"$(json_escape "$item")\""
         first=0

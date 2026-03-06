@@ -138,9 +138,15 @@ process_node() {
 
     local ok=1
     for parser in identity resources services network logs rpms lustre sfa; do
-        local script="$script_dir/parsers/parse_${parser}.sh"
-        if [[ -x "$script" ]]; then
-            if ! bash "$script" "$sos" "$node_out" 2>/dev/null; then
+        local py_script="$script_dir/parsers/parse_${parser}.py"
+        local sh_script="$script_dir/parsers/parse_${parser}.sh"
+        if [[ -x "$py_script" ]]; then
+            if ! python3 "$py_script" "$sos" "$node_out" 2>/dev/null; then
+                log_warn "Parser $parser (python) failed for $hostname"
+                ok=0
+            fi
+        elif [[ -x "$sh_script" ]]; then
+            if ! bash "$sh_script" "$sos" "$node_out" 2>/dev/null; then
                 log_warn "Parser $parser failed for $hostname"
                 ok=0
             fi
