@@ -38,32 +38,32 @@ process_log() {
 
     while IFS= read -r line; do
         # Skip noise
-        echo "$line" | grep -qiP "$NOISE_PAT" && (( noise_count++ )) || true && continue
+        echo "$line" | grep -qiE "$NOISE_PAT" && (( noise_count++ )) || true && continue
 
         # Client-originated events — has a remote LNet addr AND a client event pattern
-        if echo "$line" | grep -qP "$CLIENT_PAT" && \
-           echo "$line" | grep -qiP "$CLIENT_EVENT_PAT"; then
+        if echo "$line" | grep -qE "$CLIENT_PAT" && \
+           echo "$line" | grep -qiE "$CLIENT_EVENT_PAT"; then
             client_events+=("${prefix}${line}")
             # Extract client IP for summarization
             local ip
-            ip=$(echo "$line" | grep -oP '\d+\.\d+\.\d+\.\d+(?=@o2ib|@tcp)' | head -1)
+            ip=$(echo "$line" | perl -ne 'print $1,"\n" if /(\d+\.\d+\.\d+\.\d+)\@(?:o2ib|tcp)/' | head -1)
             [[ -n "$ip" ]] && client_ips["$ip"]=$(( ${client_ips["$ip"]:-0} + 1 ))
             continue
         fi
 
         # Storage internal critical
-        if echo "$line" | grep -qiP "$CRIT_PAT"; then
+        if echo "$line" | grep -qiE "$CRIT_PAT"; then
             crit_events+=("${prefix}${line}")
             continue
         fi
 
         # Storage internal warning
-        if echo "$line" | grep -qiP "$WARN_PAT"; then
+        if echo "$line" | grep -qiE "$WARN_PAT"; then
             warn_events+=("${prefix}${line}")
             continue
         fi
 
-    done < <(grep -iP "$NOISE_PAT|$CLIENT_PAT|$CRIT_PAT|$WARN_PAT" "$file" 2>/dev/null)
+    done < <(grep -iE "$NOISE_PAT|$CLIENT_PAT|$CRIT_PAT|$WARN_PAT" "$file" 2>/dev/null)
 }
 
 # ─── Parse logs ───────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ while IFS= read -r line; do
         iface=$(echo "$line" | awk -F'\\\\' '{print $1}' | awk '{print $NF}' | tr -d ' ')
         [[ -z "$iface" ]] && continue
         [[ "$iface" == "lo" ]] && continue
-        scope=$(echo "$line" | grep -oP 'scope \K\S+')
+        scope=$(echo "$line" | perl -ne 'print $1 if /scope (\S+)/')
         [[ $first -eq 0 ]] && iface_json_arr+=","
         iface_json_arr+=$(printf '{"interface": "%s", "ip_cidr": "%s", "scope": "%s"}' \
             "$(json_escape "$iface")" "$(json_escape "$ip_cidr")" "$(json_escape "$scope")")

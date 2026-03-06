@@ -59,9 +59,15 @@ mkdir -p "$RESULTS_DIR" "$CLUSTER_DIR" "$TMP_DIR"
 extract_tarball() {
     local tb="$1"
     local extract_to="$2"
+    # Create a unique subdir per tarball so find doesn't see other tarballs' files
+    local tb_name
+    tb_name=$(basename "$tb" | sed 's/\.tar\.xz$//;s/\.tar\.gz$//;s/\.tar\.bz2$//;s/\.tgz$//')
+    local dest="$extract_to/$tb_name"
+    mkdir -p "$dest"
     log_info "Extracting: $(basename "$tb") ..."
-    tar -xf "$tb" -C "$extract_to" --no-same-owner 2>/dev/null
-    find "$extract_to" -maxdepth 2 -name "version.txt" -exec dirname {} \; 2>/dev/null | head -1
+    tar -xf "$tb" -C "$dest" --no-same-owner 2>/dev/null
+    # tar creates sosreport-*/ inside dest, find version.txt at depth 2
+    find "$dest" -maxdepth 2 -name "version.txt" -exec dirname {} \; 2>/dev/null | head -1
 }
 
 # ─── Collect SOS report directories ──────────────────────────────────────────
@@ -131,7 +137,7 @@ process_node() {
     echo -e "${BOLD}── Processing: $hostname ──────────────────────────────────────────────${RESET}"
 
     local ok=1
-    for parser in identity resources services network logs rpms lustre; do
+    for parser in identity resources services network logs rpms lustre sfa; do
         local script="$script_dir/parsers/parse_${parser}.sh"
         if [[ -x "$script" ]]; then
             if ! bash "$script" "$sos" "$node_out" 2>/dev/null; then
@@ -149,7 +155,8 @@ process_node() {
         cat "$node_out/network.txt"   2>/dev/null; echo ""
         cat "$node_out/logs.txt"      2>/dev/null; echo ""
         cat "$node_out/lustre.txt"    2>/dev/null; echo ""
-        cat "$node_out/rpms.txt"      2>/dev/null
+        cat "$node_out/rpms.txt"      2>/dev/null; echo ""
+        cat "$node_out/sfa.txt"       2>/dev/null
     } > "$node_out/node_summary.txt"
 
     # Signal completion via tmp file

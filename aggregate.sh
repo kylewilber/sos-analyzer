@@ -27,7 +27,7 @@ log_info "Aggregating $node_count nodes..."
 # ─── Helper: read a field from a JSON file (simple key:"value" pattern) ──────
 jget() {
     local file="$1" key="$2"
-    grep -oP "\"${key}\":\s*\K(\"[^\"]*\"|-?[0-9.]+)" "$file" 2>/dev/null | head -1 | tr -d '"'
+    perl -ne "s/.*\"${key}\"\\s*:\\s*//; /^(\"([^\"]*)\"|(-?[0-9.]+))/ and print defined(\$2)?\$2:\$3,\"\\n\"" "$file" 2>/dev/null | head -1
 }
 
 # ─── Build cluster JSON ───────────────────────────────────────────────────────
@@ -89,12 +89,22 @@ for d in "${node_dirs[@]}"; do
         echo "      \"devices_down\": $(jget "$lus" devices_down),"
     fi
 
+    # SFA
+    sfa="$d/sfa.json"
+    if [[ -f "$sfa" ]]; then
+        echo "      \"sfa_flag\": \"$(jget "$sfa" flag)\","
+        echo "      \"sfa_pool_not_optimal\": $(jget "$sfa" pool_not_optimal),"
+        echo "      \"sfa_tz_inconsistent\": $(jget "$sfa" tz_inconsistent),"
+        echo "      \"sfa_ib_fw_flag\": $(jget "$sfa" ib_fw_flag),"
+    fi
+
     # Overall node flag (worst of all flags)
     node_flags=()
     [[ -f "$res" ]] && node_flags+=("$(jget "$res" flag)")
     [[ -f "$svc" ]] && node_flags+=("$(jget "$svc" flag)")
     [[ -f "$log" ]] && node_flags+=("$(jget "$log" flag)")
     [[ -f "$lus" ]] && node_flags+=("$(jget "$lus" flag)")
+    [[ -f "$sfa" ]] && node_flags+=("$(jget "$sfa" flag)")
     overall="OK"
     for f in "${node_flags[@]}"; do
         [[ "$f" == "CRITICAL" ]] && overall="CRITICAL" && break

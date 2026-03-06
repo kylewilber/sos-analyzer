@@ -212,6 +212,7 @@ for d in sorted(glob.glob(os.path.join(results_dir, '*/'))):
         'network': jload(os.path.join(d, 'network.json')),
         'logs': jload(os.path.join(d, 'logs.json')),
         'lustre': jload(os.path.join(d, 'lustre.json')),
+        'sfa':    jload(os.path.join(d, 'sfa.json')),
         'rpms': jload(os.path.join(d, 'rpms.json')),
     }
     # Compute overall flag
@@ -276,7 +277,7 @@ html = f"""<!DOCTYPE html>
 
 # ── Cluster overview table ──
 html += '<h2>Cluster Overview</h2>\n'
-html += '<table><tr><th>Hostname</th><th>OS</th><th>Kernel</th><th>CPUs</th><th>Uptime</th><th>Memory</th><th>Failed Svcs</th><th>Log Events</th><th>IB</th><th>Lustre</th><th>Status</th></tr>\n'
+html += '<table><tr><th>Hostname</th><th>Kernel</th><th>CPUs</th><th>Uptime</th><th>Memory</th><th>OSTs</th><th>MDTs</th><th>Failed Svcs</th><th>Log Events</th><th>IB</th><th>SFA</th><th>Status</th></tr>\n'
 import re as _re
 for n in nodes:
     ident = n['identity']
@@ -307,42 +308,66 @@ for n in nodes:
     if logs.get('client_event_count', 0) > 0:
         log_parts.append(f'{logs.get("client_event_count",0)} client')
     log_cell = ' / '.join(log_parts) if log_parts else 'OK'
+    # Lustre info
+    ost_count = lus.get('ost_count', '?') if lus else '—'
+    mdt_count = lus.get('mdt_count', '?') if lus else '—'
+    kernel_str = ident.get('kernel', '')
+    # SFA info
+    sfa = n['sfa']
+    sfa_flag = sfa.get('flag', 'OK') if sfa and sfa.get('available') else '—'
+    sfa_fc   = flag_class(sfa_flag) if sfa_flag != '—' else ''
+    sfa_cell = sfa_flag
+    if sfa and sfa.get('available'):
+        if sfa.get('pool_not_optimal', 0) > 0:
+            sfa_cell += f' ({sfa.get("pool_not_optimal")} pool err)'
+        if sfa.get('tz_inconsistent', 0):
+            sfa_cell += ' (TZ)'
+        if sfa.get('ib_fw_flag', 0):
+            sfa_cell += ' (IB FW)'
     html += f'''<tr>
       <td class="mono">{ident.get("hostname","?")}</td>
-      <td>{ident.get("os_name","?")} {ident.get("os_version","")}</td>
-      <td class="mono" style="font-size:11px">{ident.get("kernel","?")}</td>
+      <td class="mono" style="font-size:11px">{kernel_str}</td>
       <td>{ident.get("cpu_count","?")}</td>
       <td>{ident.get("uptime_days","?")}d</td>
       <td class="{flag_class(mem.get("flag","OK"))}">{mem.get("used_pct","?")}%</td>
+      <td>{ost_count}</td>
+      <td>{mdt_count}</td>
       <td class="{flag_class(svc.get("flag","OK"))}">{svc.get("failed_count",0)} ({svc.get("ignored_count",0)} ignored)</td>
       <td class="{flag_class(logs.get("flag","OK"))}">{log_cell}</td>
       <td class="{ib_fc}">{ib_cell}</td>
-      <td class="{flag_class(lus.get("flag","OK"))}">{lus.get("flag","N/A")}</td>
+      <td class="{sfa_fc}">{sfa_cell}</td>
       <td>{badge}</td>
     </tr>\n'''
 html += '</table>\n'
 
 # ── Disk usage diff table ──
+# Exclude pseudo-filesystems and lustre mounts (covered in Lustre section)
+DISK_EXCLUDE_PREFIXES = ('/dev', '/run', '/lustre', '/sys', '/proc')
+DISK_EXCLUDE_EXACT    = {'/dev', '/dev/shm', '/run', '/run/user/0'}
+def disk_include(mount):
+    if mount in DISK_EXCLUDE_EXACT:
+        return False
+    for p in DISK_EXCLUDE_PREFIXES:
+        if mount.startswith(p):
+            return False
+    return True
+
 html += '<h2>Disk Usage — All Nodes</h2>\n'
-# Collect all mountpoints
-mounts = {}
+mount_data = {}
 for n in nodes:
+    hn = n['identity'].get('hostname','?')
     for d in n['resources'].get('disk', []):
-        mounts[d['mount']] = mounts.get(d['mount'], [])
-if mounts:
+        m = d['mount']
+        if not disk_include(m):
+            continue
+        if m not in mount_data:
+            mount_data[m] = {}
+        mount_data[m][hn] = d
+if mount_data:
     html += '<table><tr><th>Mount</th>'
     for n in nodes:
         html += f'<th>{n["identity"].get("hostname","?")}</th>'
     html += '</tr>\n'
-    # Build mount → node → (pct, flag) map
-    mount_data = {}
-    for n in nodes:
-        hn = n['identity'].get('hostname','?')
-        for d in n['resources'].get('disk', []):
-            m = d['mount']
-            if m not in mount_data:
-                mount_data[m] = {}
-            mount_data[m][hn] = d
     for m in sorted(mount_data.keys()):
         html += f'<tr><td class="mono">{m}</td>'
         for n in nodes:
@@ -355,6 +380,8 @@ if mounts:
                 html += '<td style="color:#475569">—</td>'
         html += '</tr>\n'
     html += '</table>\n'
+else:
+    html += '<p>No filesystem data available.</p>\n'
 
 # ── Failed services diff ──
 html += '<h2>Failed Services — All Nodes</h2>\n'
@@ -431,24 +458,59 @@ for n in nodes:
 html += '</table>\n'
 
 # ── Lustre summary ──
-html += '<h2>Lustre — OST/MDT Summary</h2>\n'
-html += '<table><tr><th>Hostname</th><th>OSTs</th><th>MDTs</th><th>Devices Down</th><th>Critical OSTs</th><th>Warning OSTs</th><th>Flag</th></tr>\n'
-for n in nodes:
-    hn = n['identity'].get('hostname','?')
-    lus = n['lustre']
-    if not lus:
-        continue
-    fc = flag_class(lus.get('flag','OK'))
-    html += f'<tr><td class="mono">{hn}</td><td>{lus.get("ost_count","?")}</td>'
-    html += f'<td>{lus.get("mdt_count","?")}</td>'
-    dd = lus.get("devices_down", 0)
-    html += f'<td class="{"crit" if dd>0 else "ok"}">{dd}</td>'
-    oc = lus.get("ost_critical", 0)
-    ow = lus.get("ost_warning", 0)
-    html += f'<td class="{"crit" if oc>0 else "ok"}">{oc}</td>'
-    html += f'<td class="{"warn" if ow>0 else "ok"}">{ow}</td>'
-    html += f'<td class="{fc}"><b>{lus.get("flag","?")}</b></td></tr>\n'
-html += '</table>\n'
+
+
+# ── SFA Enclosure Summary ──
+html += '<h2>SFA — Enclosure Summary</h2>\n'
+# Collect subsystem data — each node may see all enclosures, deduplicate by name
+sfa_nodes = [n for n in nodes if n['sfa'] and n['sfa'].get('available')]
+all_subs = {}
+for n in sfa_nodes:
+    for s in n['sfa'].get('subsystems', []):
+        name = s.get('name','?')
+        if name not in all_subs:
+            all_subs[name] = s
+if all_subs:
+    html += '<table><tr><th>Name</th><th>Platform</th><th>Health</th><th>Timezone</th></tr>\n'
+    for name, s in sorted(all_subs.items()):
+        hc = 'ok' if s.get('health','') == 'ok' else 'crit'
+        html += f'<tr><td class="mono">{name}</td>'
+        html += f'<td>{s.get("platform","?")}</td>'
+        html += f'<td class="{hc}">{s.get("health","?")}</td>'
+        html += f'<td>{s.get("timezone","?")}</td></tr>\n'
+    html += '</table>\n'
+    # Timezone inconsistency — check across all subsystems
+    tzs = set(s.get('timezone','') for s in all_subs.values())
+    if len(tzs) > 1:
+        html += f'<p class="warn">&#9888; Inconsistent timezones across enclosures: {", ".join(sorted(tzs))}</p>\n'
+    # Pool issues — collect from any node that saw non-optimal pools
+    pool_issues = [(n['identity'].get('hostname','?'), n['sfa'].get('pool_issues','')) 
+                   for n in sfa_nodes if n['sfa'].get('pool_not_optimal', 0) > 0]
+    if pool_issues:
+        html += f'<p class="crit">&#10060; Non-optimal pools detected: {pool_issues[0][1]}</p>\n'
+    else:
+        html += '<p class="ok">&#9989; All pools Optimal.</p>\n'
+    # IB FW consistency — collect unique part/fw combos
+    ib_parts = {}
+    for n in sfa_nodes:
+        fw_str = n['sfa'].get('ib_fw_summary','')
+        for token in fw_str.split():
+            if '=' in token and 'MISMATCH' not in token:
+                part, fw = token.split('=', 1)
+                if part not in ib_parts:
+                    ib_parts[part] = set()
+                ib_parts[part].add(fw)
+    if ib_parts:
+        html += '<table><tr><th>HCA Part</th><th>FW Version</th><th>Consistent</th></tr>\n'
+        for part, fws in sorted(ib_parts.items()):
+            consistent = len(fws) == 1
+            fc = 'ok' if consistent else 'crit'
+            html += f'<tr><td class="mono">{part}</td>'
+            html += f'<td>{", ".join(sorted(fws))}</td>'
+            html += f'<td class="{fc}">{"Yes" if consistent else "NO - MISMATCH"}</td></tr>\n'
+        html += '</table>\n'
+else:
+    html += '<p>No SFA data available.</p>\n'
 
 # ── Per-node detail cards ──
 html += '<h2>Per-Node Details</h2>\n'

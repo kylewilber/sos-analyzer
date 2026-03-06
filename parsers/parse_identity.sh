@@ -25,18 +25,24 @@ uname_str=$(cat "$SOS/uname" 2>/dev/null)
 kernel=$(echo "$uname_str" | awk '{print $3}')
 arch=$(echo "$uname_str"   | awk '{print $NF}')
 
-# ─── CPU count from SAR header ───────────────────────────────────────────────
-sar_file=$(find "$SOS/sos_commands/sar/" -maxdepth 1 -name 'sar[0-9]*' 2>/dev/null | sort | head -1)
-cpu_count=""
-if [[ -n "$sar_file" ]]; then
-    cpu_count=$(grep -m1 '([0-9]* CPU)' "$sar_file" | grep -oP '\d+(?= CPU)')
+# ─── CPU count — cpuinfo, then dmidecode thread count * socket count ─────────
+cpu_count=$(grep -c "^processor" "$SOS/proc/cpuinfo" 2>/dev/null)
+if [[ -z "$cpu_count" || "$cpu_count" == "0" ]]; then
+    dmi="$SOS/sos_commands/hardware/dmidecode"
+    if [[ -f "$dmi" ]]; then
+        threads=$(grep 'Thread Count:' "$dmi" | awk '{print $NF}' | head -1)
+        sockets=$(grep -c 'Socket Designation:.*CPU' "$dmi" 2>/dev/null || echo 1)
+        if [[ -n "$threads" && "$threads" =~ ^[0-9]+$ ]]; then
+            cpu_count=$(( threads * sockets ))
+        fi
+    fi
 fi
-[[ -z "$cpu_count" ]] && cpu_count=$(grep -c "^processor" "$SOS/proc/cpuinfo" 2>/dev/null || echo "unknown")
+[[ -z "$cpu_count" || "$cpu_count" == "0" ]] && cpu_count="unknown"
 
 # ─── Uptime ──────────────────────────────────────────────────────────────────
 uptime_raw=$(cat "$SOS/uptime" 2>/dev/null)
-uptime_days=$(echo "$uptime_raw" | grep -oP '\d+(?= day)')
-uptime_load=$(echo "$uptime_raw" | grep -oP 'load average: [\d., ]+' | sed 's/load average: //')
+uptime_days=$(echo "$uptime_raw" | perl -ne 'print $1 if /(\d+) days?/')
+uptime_load=$(echo "$uptime_raw" | perl -ne 'print $1 if /load average: ([\d., ]+)/')
 [[ -z "$uptime_days" ]] && uptime_days=0
 
 # ─── Collection date ─────────────────────────────────────────────────────────
@@ -44,7 +50,7 @@ collect_date=$(grep 'Universal time:' "$SOS/date" 2>/dev/null | awk '{print $3, 
 [[ -z "$collect_date" ]] && collect_date=$(cat "$SOS/date" 2>/dev/null | head -1)
 
 # ─── SOS version ─────────────────────────────────────────────────────────────
-sos_version=$(cat "$SOS/version.txt" 2>/dev/null | grep -oP '[\d.]+' | head -1)
+sos_version=$(cat "$SOS/version.txt" 2>/dev/null | perl -ne 'print $1,"\n" if /([\d.]+)/' | head -1)
 
 # ─── Write JSON ──────────────────────────────────────────────────────────────
 cat > "$OUT/identity.json" <<EOF
