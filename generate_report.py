@@ -1062,6 +1062,14 @@ pre {{ background: #0a0e17; padding: 8px; border-radius: 4px; overflow-x: auto; 
 # ─── JavaScript ───────────────────────────────────────────────────────────────
 
 JS = """
+function toggleNodeDetail() {
+  const body    = document.getElementById('node-detail-body');
+  const chevron = document.getElementById('node-detail-chevron');
+  const isOpen  = body.style.display !== 'none';
+  body.style.display    = isOpen ? 'none' : 'block';
+  chevron.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+}
+
 function toggleSection(el) {
   const content = el.nextElementSibling;
   const chevron = el.querySelector('.chevron');
@@ -1075,9 +1083,18 @@ function toggleSection(el) {
 function scrollToNode(hostname) {
   const el = document.getElementById('node-' + hostname);
   if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  el.classList.add('flash');
-  setTimeout(() => el.classList.remove('flash'), 800);
+  // Expand node detail section if collapsed
+  const body    = document.getElementById('node-detail-body');
+  const chevron = document.getElementById('node-detail-chevron');
+  if (body && body.style.display === 'none') {
+    body.style.display = 'block';
+    if (chevron) chevron.style.transform = 'rotate(90deg)';
+  }
+  setTimeout(() => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 800);
+  }, 50);
 }
 
 function filterTable() {
@@ -1207,10 +1224,15 @@ def build_html(report_dir: Path, nodes: list[dict], correlations: dict,
 <!-- Overview table -->
 {render_overview_table(nodes)}
 
-<!-- Node cards by appliance -->
+<!-- Node cards by appliance — collapsible -->
 <div style="padding:0 20px 20px 20px">
-  <h2 style="margin:0 0 12px 0;font-size:15px;color:{C['muted']};text-transform:uppercase;letter-spacing:0.06em">Node Detail</h2>
-  {appliance_html}
+  <div onclick="toggleNodeDetail()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 14px;background:{C['border']};border-radius:6px;margin-bottom:12px;user-select:none">
+    <h2 style="margin:0;font-size:15px;color:{C['muted']};text-transform:uppercase;letter-spacing:0.06em">Node Detail</h2>
+    <span id="node-detail-chevron" style="color:{C['muted']};font-size:12px;transition:transform 0.2s ease">▶</span>
+  </div>
+  <div id="node-detail-body" style="display:none">
+    {appliance_html}
+  </div>
 </div>
 
 <!-- Footer -->
