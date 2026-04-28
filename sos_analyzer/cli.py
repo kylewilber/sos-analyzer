@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     input_path  = Path(args.input).expanduser().resolve()
     if args.output is None:
         timestamp   = datetime.now().strftime("%Y%m%d-%H%M%S")
-        output_path = Path("reports") / timestamp
+        output_path = Path.cwd() / "reports" / timestamp
         print(f"[*] No --output specified, using: {output_path}")
     else:
         output_path = Path(args.output).expanduser().resolve()

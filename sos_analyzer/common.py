@@ -104,10 +104,12 @@ def find_sos_root(path: Path) -> Path | None:
 
 def discover_sos_reports(input_path: Path) -> list[Path]:
     """
-    Given an input path (directory of tarballs, directory of extracted dirs,
-    or a single tarball/dir), return a list of SOS root paths.
+    Discover SOS report roots in input_path.
+    Handles: sos-collector dirs, tarballs, pre-extracted dirs, or mixed.
+    Prefers pre-extracted dirs over tarballs when both exist for same report.
     """
-    roots = []
+    roots: list[Path] = []
+    seen_basenames: set[str] = set()
 
     if input_path.is_file():
         root = find_sos_root(input_path)
@@ -116,26 +118,37 @@ def discover_sos_reports(input_path: Path) -> list[Path]:
         return roots
 
     if input_path.is_dir():
-        # Check if this IS a single SOS root
+        # Single SOS root?
         if (input_path / "hostname").exists():
-            roots.append(input_path)
-            return roots
+            return [input_path]
 
-        # Look for tarballs
-        for tarball in sorted(input_path.glob("sosreport-*.tar.*")):
-            root = find_sos_root(tarball)
-            if root:
-                roots.append(root)
-
-        # Look for extracted directories
+        # Collect all candidate directories to search
+        search_dirs = [input_path]
         for d in sorted(input_path.iterdir()):
-            if d.is_dir() and d.name.startswith("sosreport-"):
-                if (d / "hostname").exists() or (d / "uname").exists():
-                    if d not in roots:
-                        roots.append(d)
+            if d.is_dir() and d.name.startswith("sos-collector-"):
+                search_dirs.append(d)
+
+        for search_dir in search_dirs:
+            # Pass 1: pre-extracted dirs (preferred)
+            for d in sorted(search_dir.iterdir()):
+                if d.is_dir() and d.name.startswith("sosreport-"):
+                    if (d / "hostname").exists() or (d / "uname").exists():
+                        if d not in roots:
+                            roots.append(d)
+                            seen_basenames.add(d.name)
+
+            # Pass 2: tarballs — skip if already have extracted version
+            for tarball in sorted(search_dir.glob("sosreport-*.tar.*")):
+                base = tarball.name
+                for ext in (".tar.xz", ".tar.gz", ".tar.bz2", ".tgz"):
+                    base = base.replace(ext, "")
+                if base not in seen_basenames:
+                    root = find_sos_root(tarball)
+                    if root and root not in roots:
+                        roots.append(root)
+                        seen_basenames.add(base)
 
     return roots
-
 
 def hostname_from_sos(sos_root: Path) -> str:
     """Extract hostname from SOS root."""
