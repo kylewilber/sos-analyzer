@@ -1,22 +1,3 @@
 [build-system]
-requires = ["setuptools>=42"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
-
-[project]
-name = "sos-analyzer"
-version = "0.2.0"
-description = "SOS report analysis toolkit for DDN Lustre HPC storage clusters"
-readme = "README.md"
-requires-python = ">=3.9"
-dependencies = []
-
-[project.scripts]
-sos-analyzer = "sos_analyzer.cli:main"
-sos-analyzer-diff = "diff_reports:main"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["sos_analyzer*"]
-
-[tool.setuptools.package-data]
-"sos_analyzer" = ["conf/*.txt"]
