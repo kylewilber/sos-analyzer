@@ -112,6 +112,20 @@ def discover_sos_reports(input_path: Path) -> list[Path]:
     seen_basenames: set[str] = set()
 
     if input_path.is_file():
+        # Handle sos-collector-*.tar.xz that contains sosreport-*.tar.xz inside
+        if input_path.name.startswith("sos-collector-") and re.search(r'\.tar\.(xz|gz|bz2)$', input_path.name):
+            import tarfile
+            extract_dir = input_path.parent / input_path.name.replace(".tar.xz","").replace(".tar.gz","").replace(".tar.bz2","")
+            if not extract_dir.exists():
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    with tarfile.open(input_path) as tf:
+                        tf.extractall(input_path.parent)
+            # Now recurse into the extracted directory
+            if extract_dir.exists():
+                roots.extend(discover_sos_reports(extract_dir))
+            return roots
         root = find_sos_root(input_path)
         if root:
             roots.append(root)
@@ -121,6 +135,16 @@ def discover_sos_reports(input_path: Path) -> list[Path]:
         # Single SOS root?
         if (input_path / "hostname").exists():
             return [input_path]
+
+        # Extract any sos-collector-*.tar.xz tarballs first
+        import tarfile, warnings
+        for tarball in sorted(input_path.glob("sos-collector-*.tar.*")):
+            extract_dir = input_path / tarball.name.replace(".tar.xz","").replace(".tar.gz","").replace(".tar.bz2","")
+            if not extract_dir.exists():
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    with tarfile.open(tarball) as tf:
+                        tf.extractall(input_path)
 
         # Collect all candidate directories to search
         search_dirs = [input_path]
@@ -156,8 +180,24 @@ def hostname_from_sos(sos_root: Path) -> str:
     if not h:
         h = read_file(sos_root / "proc" / "sys" / "kernel" / "hostname")
     if not h:
-        # Try to extract from directory name: sosreport-HOSTNAME-...
-        m = re.match(r'sosreport-([^-]+-[^-]+-[^-]+-[^-]+)', sos_root.name)
+        # Extract from directory name: sosreport-HOSTNAME-UUID-DATE-RANDOM
+        # Strip trailing UUID/date/random suffix to get clean hostname
+        m = re.match(r'sosreport-(.+?)-[0-9a-f]{8}-[0-9a-f]{4}', sos_root.name)
         if m:
             h = m.group(1)
+        else:
+            h = sos_root.name
     return h.strip() or sos_root.name
+
+
+def is_valid_sos_root(sos_root: Path) -> bool:
+    """Check if a SOS root has meaningful data (not a failed/empty collection)."""
+    # Must have at least a hostname or uname file with content
+    hostname = read_file(sos_root / "hostname").strip()
+    uname    = read_file(sos_root / "uname").strip()
+    if not hostname and not uname:
+        return False
+    # Must have proc/meminfo (basic system info)
+    if not (sos_root / "proc" / "meminfo").exists():
+        return False
+    return True

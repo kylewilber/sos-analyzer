@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from .common import discover_sos_reports, hostname_from_sos
+from .common import discover_sos_reports, hostname_from_sos, is_valid_sos_root
 from . import parsers
 from .aggregate import aggregate
 from .export import export_csv
@@ -102,7 +102,12 @@ def main(argv: list[str] | None = None) -> int:
     if not sos_roots:
         print(f"[ERROR] No SOS reports found in {input_path}", file=sys.stderr)
         return 1
-    print(f"[*] Found {len(sos_roots)} SOS reports")
+    # Filter out empty/failed SOS collections
+    sos_roots = [r for r in sos_roots if is_valid_sos_root(r)]
+    if not sos_roots:
+        print(f"[ERROR] No valid SOS reports found in {input_path}", file=sys.stderr)
+        return 1
+    print(f"[*] Found {len(sos_roots)} valid SOS reports")
 
     # ── Set up output directories ──
     nodes_dir   = output_path / "nodes"
