@@ -137,7 +137,7 @@ process_node() {
     echo -e "${BOLD}── Processing: $hostname ──────────────────────────────────────────────${RESET}"
 
     local ok=1
-    for parser in identity resources services network logs rpms lustre sfa; do
+    for parser in identity resources services network logs rpms lustre sfa sysctl; do
         local py_script="$script_dir/parsers/parse_${parser}.py"
         local sh_script="$script_dir/parsers/parse_${parser}.sh"
         if [[ -x "$py_script" ]]; then
@@ -162,7 +162,8 @@ process_node() {
         cat "$node_out/logs.txt"      2>/dev/null; echo ""
         cat "$node_out/lustre.txt"    2>/dev/null; echo ""
         cat "$node_out/rpms.txt"      2>/dev/null; echo ""
-        cat "$node_out/sfa.txt"       2>/dev/null
+        cat "$node_out/sfa.txt"       2>/dev/null; echo ""
+        cat "$node_out/sysctl.txt"    2>/dev/null
     } > "$node_out/node_summary.txt"
 
     # Signal completion via tmp file
@@ -225,3 +226,6 @@ if [[ $NO_EXPORT -eq 0 ]]; then
     echo "  PDF report:            $CLUSTER_DIR/reports/cluster_report.pdf"
 fi
 echo ""
+
+# ─── LLM Analysis ─────────────────────────────────────────────────────────────
+python3 "$SCRIPT_DIR/analyze_cluster.py" "$OUTPUT_DIR" &&     python3 "$SCRIPT_DIR/patch_visuals.py" "$OUTPUT_DIR" &&     python3 "$SCRIPT_DIR/patch_layout.py" "$OUTPUT_DIR" &&     python3 "$SCRIPT_DIR/patch_report.py" "$OUTPUT_DIR/cluster/cluster_report_ai.html"

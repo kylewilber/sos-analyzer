@@ -98,6 +98,13 @@ for d in "${node_dirs[@]}"; do
         echo "      \"sfa_ib_fw_flag\": $(jget "$sfa" ib_fw_flag),"
     fi
 
+    # Sysctl
+    # Sysctl
+    sys="$d/sysctl.json"
+    if [[ -f "$sys" ]]; then
+        echo "      \"sysctl_flag\": \"$(jget "$sys" flag)\","
+        echo "      \"sysctl_drift_count\": $(jget "$sys" drift_count),"
+    fi
     # Overall node flag (worst of all flags)
     node_flags=()
     [[ -f "$res" ]] && node_flags+=("$(jget "$res" flag)")
@@ -105,6 +112,7 @@ for d in "${node_dirs[@]}"; do
     [[ -f "$log" ]] && node_flags+=("$(jget "$log" flag)")
     [[ -f "$lus" ]] && node_flags+=("$(jget "$lus" flag)")
     [[ -f "$sfa" ]] && node_flags+=("$(jget "$sfa" flag)")
+    [[ -f "$sys" ]] && node_flags+=("$(jget "$sys" flag)")
     overall="OK"
     for f in "${node_flags[@]}"; do
         [[ "$f" == "CRITICAL" ]] && overall="CRITICAL" && break
