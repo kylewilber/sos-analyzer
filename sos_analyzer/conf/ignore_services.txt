@@ -1,0 +1,4 @@
+# Services to ignore in failed service detection
+# Lines starting with # are comments
+# Each line is a substring match against the unit name
+powerman

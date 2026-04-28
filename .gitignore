@@ -1,5 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
 reports/
-*.prev
-*.prev2
 *.tar.gz
 *.tar.xz
