@@ -12,6 +12,7 @@ dependencies = []
 
 [project.scripts]
 sos-analyzer = "sos_analyzer.cli:main"
+sos-analyzer-diff = "diff_reports:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
