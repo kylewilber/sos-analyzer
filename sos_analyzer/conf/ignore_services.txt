@@ -2,3 +2,4 @@
 # Lines starting with # are comments
 # Each line is a substring match against the unit name
 powerman
+emf-iperf-server
