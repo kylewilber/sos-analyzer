@@ -71,8 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--input",  "-i", required=True,
                         help="Directory of SOS tarballs or extracted reports")
-    parser.add_argument("--output", "-o", required=True,
-                        help="Output directory for results")
+    parser.add_argument("--output", "-o", default=None,
+                        help="Output directory for results (default: ./reports/<timestamp>)")
     parser.add_argument("--jobs",   "-j", type=int, default=0,
                         help="Parallel jobs for node parsing (0=auto)")
     parser.add_argument("--no-report", action="store_true",
@@ -85,8 +85,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="Write debug files")
     args = parser.parse_args(argv)
 
+    from datetime import datetime
     input_path  = Path(args.input).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
+    if args.output is None:
+        timestamp   = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_path = Path("reports") / timestamp
+        print(f"[*] No --output specified, using: {output_path}")
+    else:
+        output_path = Path(args.output).expanduser().resolve()
     script_dir  = Path(__file__).parent
     conf_dir    = script_dir / "conf"
 
