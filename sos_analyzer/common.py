@@ -161,16 +161,27 @@ def discover_sos_reports(input_path: Path) -> list[Path]:
                             roots.append(d)
                             seen_basenames.add(d.name)
 
-            # Pass 2: tarballs — skip if already have extracted version
+            # Pass 2: tarballs — extract if no corresponding extracted dir exists
+            import tarfile, warnings
             for tarball in sorted(search_dir.glob("sosreport-*.tar.*")):
                 base = tarball.name
                 for ext in (".tar.xz", ".tar.gz", ".tar.bz2", ".tgz"):
                     base = base.replace(ext, "")
-                if base not in seen_basenames:
-                    root = find_sos_root(tarball)
-                    if root and root not in roots:
-                        roots.append(root)
-                        seen_basenames.add(base)
+                if base in seen_basenames:
+                    continue
+                extract_dir = search_dir / base
+                if not extract_dir.exists():
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            with tarfile.open(tarball) as tf:
+                                tf.extractall(search_dir)
+                    except Exception:
+                        continue
+                root = find_sos_root(search_dir / base) if (search_dir / base).exists() else None
+                if root and is_valid_sos_root(root) and root not in roots:
+                    roots.append(root)
+                    seen_basenames.add(base)
 
     return roots
 
