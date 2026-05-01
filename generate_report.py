@@ -405,18 +405,33 @@ def donut_chart(n_crit, n_warn, n_ok, total, width=160, height=160):
 
 
 def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
+    # Try DDN appliance grouping (sc1-ddn1, sc1-ddn2, etc.)
     groups = defaultdict(list)
     for node in nodes:
         m = re.match(r'^(.*-ddn\d+)', node["hostname"])
-        key = m.group(1) if m else "unknown"
-        groups[key].append(node["hostname"])
+        key = m.group(1) if m else None
+        if key:
+            groups[key].append(node["hostname"])
+
+    # Fallback: chunk into rows of 4 (e.g. digipfs1-vm01..vm56)
+    if not groups:
+        hostnames = sorted(n["hostname"] for n in nodes)
+        chunk = 4
+        for i in range(0, len(hostnames), chunk):
+            first = hostnames[i].split("-")[-1]
+            last  = hostnames[min(i+chunk-1, len(hostnames)-1)].split("-")[-1]
+            groups[f"{first}-{last}"] = hostnames[i:i+chunk]
 
     appliances = sorted(groups.keys())
-    cell_w, cell_h = 52, 36
-    pad_x, pad_y   = 8, 28
-    cols   = max(len(v) for v in groups.values())
-    rows   = len(appliances)
-    width  = pad_x * 2 + cols * cell_w + (cols - 1) * 4 + 60
+    cols = max(len(v) for v in groups.values())
+    rows = len(appliances)
+    # Scale cell size for wide grids
+    if cols > 16:   cell_w, cell_h = 32, 28
+    elif cols > 8:  cell_w, cell_h = 42, 32
+    else:           cell_w, cell_h = 52, 36
+    pad_x, pad_y = 8, 28
+    label_w = 60
+    width  = pad_x * 2 + cols * cell_w + (cols - 1) * 3 + label_w
     height = pad_y + rows * cell_h + (rows - 1) * 4 + 20
 
     def load_color(load):
