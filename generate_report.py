@@ -138,6 +138,8 @@ def load_node(node_dir: Path) -> dict:
         "log_client_events": logs.get("client_event_count", 0),
         "critical_events":   [str(e)[:MAX_EVENT_LEN] for e in
                               (crit_events[:MAX_CRIT_EVENTS] if isinstance(crit_events, list) else [])],
+        "warning_events":    [str(e)[:MAX_EVENT_LEN] for e in
+                              (logs.get("warning_events", [])[:20] if isinstance(logs.get("warning_events", []), list) else [])],
         "client_events":     [str(e)[:MAX_EVENT_LEN] for e in
                               (client_events[:MAX_CLIENT_EVENTS] if isinstance(client_events, list) else [])],
 
@@ -624,11 +626,40 @@ def render_log_section(node: dict) -> str:
     client = node.get("log_client_events", 0)
 
     summary = f"<p style='font-size:12px;color:{C['muted']}'>{crit} critical &nbsp;·&nbsp; {warn} warnings &nbsp;·&nbsp; {client} client events</p>"
-    if not events:
-        return summary + f"<p style='color:{C['muted']}'>No critical event samples</p>"
+    warn_events = node.get("warning_events", [])
 
-    lines = "\n".join(escape(str(e)) for e in events)
-    return summary + f'<pre style="font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;color:{C["text"]};margin:4px 0">{lines}</pre>'
+    if not events and not warn_events:
+        return summary + f"<p style='color:{C['muted']}'>No event samples</p>"
+
+    result = summary
+    if events:
+        lines = "\n".join(escape(str(e)) for e in events)
+        result += f'<pre style="font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;color:{C["text"]};margin:4px 0">{lines}</pre>'
+    if warn_events:
+        # Group similar warnings by stripping timestamps and hostnames
+        from collections import Counter
+        import re as _re
+        def normalize(e):
+            # Strip timestamp and hostname prefix
+            m = _re.sub(r'^\S+ \S+ \S+ ', '', str(e))
+            # Strip PIDs: word[1234]: -> word:
+            m = _re.sub(r'\[\d+\]', '', m)
+            # Normalize device names, IPs, hex addresses
+            m = _re.sub(r'\b\d+\.\d+\.\d+\.\d+\b', '<IP>', m)
+            m = _re.sub(r'\b(ata|sda|sdb|sdc|sdd|sde|sdf|sdg|sdh)\d*\b', '<dev>', m)
+            m = _re.sub(r'0x[0-9a-fA-F]+', '<hex>', m)
+            # Normalize interface names
+            m = _re.sub(r'\b(eno|ens|enp|eth|bond|mlxib|mlx5|ib\d|usermode|virbr)\w*\b', '<iface>', m)
+            return m.strip()[:120]
+        groups = Counter(normalize(e) for e in warn_events)
+        warn_total = node.get("log_warnings", len(warn_events))
+        warn_label = f'<div style="font-size:11px;color:{C["warning"]};margin-top:6px;margin-bottom:2px">{warn_total} warnings ({len(groups)} unique patterns, showing top {min(8,len(groups))}):</div>'
+        warn_lines = "\n".join(
+            f"{count}x  {escape(msg)}" if count > 1 else escape(msg)
+            for msg, count in groups.most_common(8)
+        )
+        result += warn_label + f'<pre style="font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;color:{C["muted"]};margin:4px 0">{warn_lines}</pre>'
+    return result
 
 
 def render_client_ni_section(node: dict) -> str:
@@ -728,7 +759,7 @@ def render_node_card(node: dict) -> str:
   <div>Uptime: <b>{node['uptime_days']}d</b> &nbsp;·&nbsp; Load: <b>{escape(load_1m)}</b></div>
   <div>Mem: {color_val(mem_pct, 80, 90)}% ({node['mem_used_gb']} / {node['mem_total_gb']} GB) &nbsp;·&nbsp; Swap: {node['swap_used_pct']}%</div>
   <div>CPU: usr={escape(str(node['cpu_usr_pct']))}% &nbsp; iowait={escape(str(node['cpu_iowait_pct']))}% &nbsp; idle={color_val(node['cpu_idle_pct'], 10, 2, lower_is_bad=True)}%</div>
-  <div>IB: {badge(node['ib_flag'])} &nbsp;·&nbsp; Logs: <span style="color:{flag_color(node['log_flag'])}">{node['log_critical']} crit</span> / {node['log_warnings']} warn / {node['log_client_events']} client</div>
+  <div>IB: {badge(node['ib_flag'])} &nbsp;·&nbsp; Logs: <span style="color:{flag_color(node['log_flag']) if node['log_flag'] not in ('CLIENT_ISSUES','OK') else C['text']}">{node['log_critical']} crit</span> / {node['log_warnings']} warn / <span style="color:{C['info'] if node['log_client_events'] > 0 else C['muted']}">{node['log_client_events']} client</span></div>
   <div>{sysctl_summary}</div>
 </div>
 <div style="background:{C['border']};border-radius:3px;height:6px;margin-bottom:8px">
@@ -738,7 +769,10 @@ def render_node_card(node: dict) -> str:
     sections = ""
     sections += collapsible("Disk Usage",       render_disk_section(node),     node.get("mem_flag",""))
     sections += collapsible("InfiniBand",        render_ib_section(node),       node.get("ib_flag",""))
-    sections += collapsible("Log Events",        render_log_section(node),      node.get("log_flag",""))
+    log_badge_flag = node.get("log_flag","")
+    if log_badge_flag == "CLIENT_ISSUES":
+        log_badge_flag = ""  # client events shown in their own section
+    sections += collapsible("Log Events",        render_log_section(node),      log_badge_flag)
     sections += collapsible("Client NI Events",  render_client_ni_section(node))
     sections += collapsible("SFA",               render_sfa_section(node),      node.get("sfa_flag",""))
     sections += collapsible("Sysctl Tuning",     render_sysctl_section(node),   node.get("sysctl_flag",""))

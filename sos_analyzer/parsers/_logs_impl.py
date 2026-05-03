@@ -48,7 +48,13 @@ NOISE_PAT = re.compile(
     r'|Removed session'
     r'|LAPIC_NMI'
     r'|mounted filesystem with'
-    r'|mounting filesystem',
+    r'|mounting filesystem'
+    r'|ADDRCONF.NETDEV_UP.'
+    r'|link is not ready'
+    r'|locking_type.*deprecated'
+    r'|dracut-initqueue.*WARNING'
+    r'|SATA link down'
+    r'|ata[0-9].*: failed to resume link',
     re.IGNORECASE
 )
 
