@@ -600,8 +600,8 @@ def render_ib_section(node: dict) -> str:
         fw        = p.get("firmware", "")
         rows += f"""<tr>
       <td style="font-family:monospace">{escape(str(p.get('ca','')))} </td>
-      <td style="color:{flag_color(p.get('state',''))}">
-        {escape(str(p.get('state','')))}
+      <td style="color:{flag_color(p.get('flag','OK'))}">
+        {escape(str(p.get('state','')))} / {escape(str(p.get('physical_state','')))}
       </td>
       <td>{escape(str(p.get('rate','')))} </td>
       <td style="font-family:monospace;font-size:11px">{escape(fw)}</td>
@@ -1008,6 +1008,32 @@ def render_visual_header(nodes: list[dict], report_dir: Path) -> str:
     total_crit_ev = sum(n["log_critical"] for n in nodes)
     total_warn_ev = sum(n["log_warnings"] for n in nodes)
 
+    # IB fabric summary
+    ib_total      = 0
+    ib_up         = 0
+    ib_errors     = 0
+    ib_down_ports = []
+    for n in nodes:
+        for p in n.get("ib_ports", []):
+            ib_total += 1
+            if p.get("physical_state") == "LinkUp" and p.get("state") == "Active":
+                ib_up += 1
+            else:
+                ib_down_ports.append(f"{n['hostname']} {p.get('ca','')}")
+            if p.get("error_count", 0) > 0:
+                ib_errors += 1
+                ib_down_ports.append(f"{n['hostname']}:{p.get('ca','')} ({p.get('error_count',0)} errs)")
+    ib_down   = ib_total - ib_up
+    if ib_down > 0:
+        ib_color  = C["critical"]
+        ib_status = f"{ib_down} port(s) down"
+    elif ib_errors > 0:
+        ib_color  = C["warning"]
+        ib_status = f"{ib_errors} port(s) with errors"
+    else:
+        ib_color  = C["ok"]
+        ib_status = "All ports healthy"
+
     # SVGs
     donut   = donut_chart(n_crit, n_warn, n_ok, n_total)
     mem_g   = semicircle_gauge("Avg Memory", f"{avg_mem}%", avg_mem, 70, 85,
@@ -1029,6 +1055,12 @@ def render_visual_header(nodes: list[dict], report_dir: Path) -> str:
   {panel("Memory Pressure", mem_g)}
   {panel("CPU Load", load_g)}
   {panel("OST Capacity", ost_g)}
+  {panel("IB Fabric", f'''<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 0;gap:6px">
+    <div style="font-size:28px;font-weight:700;color:{C["ok"] if ib_up == ib_total else C["critical"]};line-height:1">{ib_up}/{ib_total}</div>
+    <div style="font-size:11px;color:{C["muted"]};margin-top:2px">ports LinkUp</div>
+    <div style="font-size:12px;color:{C["warning"] if ib_errors > 0 else C["ok"]};margin-top:4px">{"✓ All ports clean" if ib_errors == 0 else f"{ib_errors} port(s) with errors"}</div>
+    {'<div style="font-size:10px;color:' + C["warning"] + ';margin-top:4px;text-align:center;line-height:1.6">' + '<br>'.join(ib_down_ports[:4]) + ('<br>...' if len(ib_down_ports) > 4 else '') + '</div>' if ib_down_ports else ''}
+  </div>''')}
   {panel("Log Events", f'''<div style="display:flex;gap:24px;align-items:center;padding:16px 0">
     <div style="text-align:center">
       <div style="font-size:36px;font-weight:700;color:{C['critical']};line-height:1">{total_crit_ev}</div>

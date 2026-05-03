@@ -84,6 +84,8 @@ def _parse_ibstat(sos_root: Path) -> dict[str, dict]:
         if current_ca:
             m = re.search(r'State:\s+(.+)', line)
             if m: data["state"] = m.group(1).strip()
+            m = re.search(r'Physical state:\s+(.+)', line)
+            if m: data["physical_state"] = m.group(1).strip()
             m = re.search(r'Rate:\s+(.+)', line)
             if m: data["rate"] = m.group(1).strip()
             m = re.search(r'Firmware version:\s+(.+)', line)
@@ -160,8 +162,9 @@ def parse(sos_root: Path, out_dir: Path) -> dict:
 
         err_count, err_detail = ib_errors.get(ca, (0, ""))
 
+        physical_state = data.get("physical_state", "")
         port_flag = "OK"
-        if state != "Active":
+        if state != "Active" or physical_state != "LinkUp":
             port_flag = "CRITICAL"
             ib_flag   = "CRITICAL"
         elif err_count > 0:
@@ -170,13 +173,14 @@ def parse(sos_root: Path, out_dir: Path) -> dict:
                 ib_flag = "WARNING"
 
         ib_ports.append({
-            "ca":           ca,
-            "state":        state,
-            "rate":         rate,
-            "firmware":     firmware,
-            "error_count":  err_count,
-            "error_detail": err_detail,
-            "flag":         port_flag,
+            "ca":             ca,
+            "state":          state,
+            "physical_state": physical_state,
+            "rate":           rate,
+            "firmware":       firmware,
+            "error_count":    err_count,
+            "error_detail":   err_detail,
+            "flag":           port_flag,
         })
 
     result = {
