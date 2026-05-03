@@ -143,6 +143,7 @@ def load_node(node_dir: Path) -> dict:
 
         "lustre_flag":       lustre.get("flag", "OK"),
         "ost_count":         lustre.get("ost_count", 0),
+        "mdt_count":         lustre.get("mdt_count", 0),
         "ost_critical":      lustre.get("ost_critical", 0),
         "devices_down":      lustre.get("devices_down", 0),
 
@@ -159,6 +160,16 @@ def load_node(node_dir: Path) -> dict:
 
         "overall_flag":      "OK",
     }
+
+
+def node_role(node: dict) -> str:
+    """Derive node role from lustre device counts."""
+    ost = node.get("ost_count", 0)
+    mdt = node.get("mdt_count", 0)
+    if ost > 0 and mdt > 0: return "OSS+MDS"
+    if ost > 0:              return "OSS"
+    if mdt > 0:              return "MDS"
+    return "MGS"
 
 
 def load_cluster(report_dir: Path) -> tuple[dict, list[dict]]:
@@ -703,9 +714,16 @@ def render_node_card(node: dict) -> str:
     sections += collapsible("SFA",               render_sfa_section(node),      node.get("sfa_flag",""))
     sections += collapsible("Sysctl Tuning",     render_sysctl_section(node),   node.get("sysctl_flag",""))
 
+    role = node_role(node)
+    role_color = {
+        "OSS": C["info"], "MDS": C["ok"], "OSS+MDS": C["warning"],
+        "MGS": C["muted"]
+    }.get(role, C["muted"])
+
     return f"""<div class="node-card" id="node-{escape(h)}" data-status="{escape(flag)}" data-hostname="{escape(h)}">
   <div class="node-header">
     <h3 style="margin:0;font-size:14px">{escape(h)}</h3>
+    <span style="font-size:11px;color:{role_color};font-weight:600;margin-right:6px">{escape(role)}</span>
     {badge(flag)}
   </div>
   <div style="padding:10px 14px">
@@ -851,6 +869,7 @@ def render_overview_table(nodes: list[dict]) -> str:
         flag     = n["overall_flag"]
         flag_c   = flag_color(flag)
         la       = str(n.get("load_average", "")).split(",")[0].strip()
+        role     = node_role(n)
         sysctl_f = n.get("sysctl_flag", "N/A")
         sdc      = n.get("sysctl_drift_count", 0)
         sysctl_cell = f'<span style="color:{flag_color(sysctl_f)}">{escape(sysctl_f)}</span>'
@@ -859,6 +878,7 @@ def render_overview_table(nodes: list[dict]) -> str:
 
         rows += f"""<tr data-status="{escape(flag)}" data-hostname="{escape(n['hostname'])}" onclick="scrollToNode('{escape(n['hostname'])}')">
   <td style="font-family:monospace;font-size:12px">{escape(n['hostname'])}</td>
+  <td><span style="font-size:11px;color:{C['muted']}">{escape(role)}</span></td>
   <td>{badge(flag)}</td>
   <td>{n['uptime_days']}</td>
   <td>{color_val(la, 20, 40)}</td>
@@ -886,16 +906,17 @@ def render_overview_table(nodes: list[dict]) -> str:
       <thead>
         <tr style="color:{C['muted']};border-bottom:1px solid {C['border']}">
           <th onclick="sortTable(0)" style="text-align:left;padding:6px 8px;cursor:pointer">Hostname ↕</th>
-          <th onclick="sortTable(1)" style="padding:6px 4px;cursor:pointer">Status ↕</th>
-          <th onclick="sortTable(2)" style="padding:6px 4px;cursor:pointer">Uptime(d) ↕</th>
-          <th onclick="sortTable(3)" style="padding:6px 4px;cursor:pointer">Load ↕</th>
-          <th onclick="sortTable(4)" style="padding:6px 4px;cursor:pointer">Mem% ↕</th>
-          <th onclick="sortTable(5)" style="padding:6px 4px;cursor:pointer">CPU Idle% ↕</th>
-          <th onclick="sortTable(6)" style="padding:6px 4px;cursor:pointer">Log Crit ↕</th>
-          <th onclick="sortTable(7)" style="padding:6px 4px;cursor:pointer">Log Warn ↕</th>
-          <th onclick="sortTable(8)" style="padding:6px 4px;cursor:pointer">IB ↕</th>
-          <th onclick="sortTable(9)" style="padding:6px 4px;cursor:pointer">SFA ↕</th>
-          <th onclick="sortTable(10)" style="padding:6px 4px;cursor:pointer">Sysctl ↕</th>
+          <th onclick="sortTable(2)" style="padding:6px 4px;cursor:pointer">Role ↕</th>
+          <th onclick="sortTable(2)" style="padding:6px 4px;cursor:pointer">Status ↕</th>
+          <th onclick="sortTable(3)" style="padding:6px 4px;cursor:pointer">Uptime(d) ↕</th>
+          <th onclick="sortTable(4)" style="padding:6px 4px;cursor:pointer">Load ↕</th>
+          <th onclick="sortTable(5)" style="padding:6px 4px;cursor:pointer">Mem% ↕</th>
+          <th onclick="sortTable(6)" style="padding:6px 4px;cursor:pointer">CPU Idle% ↕</th>
+          <th onclick="sortTable(7)" style="padding:6px 4px;cursor:pointer">Log Crit ↕</th>
+          <th onclick="sortTable(8)" style="padding:6px 4px;cursor:pointer">Log Warn ↕</th>
+          <th onclick="sortTable(9)" style="padding:6px 4px;cursor:pointer">IB ↕</th>
+          <th onclick="sortTable(10)" style="padding:6px 4px;cursor:pointer">SFA ↕</th>
+          <th onclick="sortTable(11)" style="padding:6px 4px;cursor:pointer">Sysctl ↕</th>
         </tr>
       </thead>
       <tbody id="overview-tbody">
