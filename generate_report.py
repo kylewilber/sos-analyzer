@@ -193,7 +193,7 @@ def load_cluster(report_dir: Path) -> tuple[dict, list[dict]]:
 def group_by_appliance(nodes: list[dict]) -> dict[str, list[dict]]:
     groups = defaultdict(list)
     for node in nodes:
-        m = re.match(r'^(.*-ddn\d+)', node["hostname"])
+        m = re.match(r'^(.*)-vm\d+', node["hostname"]) or             re.match(r'^(.*-ddn\d+)', node["hostname"])
         key = m.group(1) if m else "unknown"
         groups[key].append(node)
     return dict(sorted(groups.items()))
@@ -373,7 +373,7 @@ def semicircle_gauge(label, value_str, pct, warn=60, crit=80,
 </svg>"""
 
 
-def donut_chart(n_crit, n_warn, n_ok, total, width=160, height=160):
+def donut_chart(n_crit, n_warn, n_ok, total, width=200, height=170):
     cx, cy = width / 2, height / 2
     r_out, r_in = 60, 38
     segments = [(n_crit, C["critical"], "Critical"),
@@ -416,10 +416,11 @@ def donut_chart(n_crit, n_warn, n_ok, total, width=160, height=160):
 
 
 def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
-    # Try DDN appliance grouping (sc1-ddn1, sc1-ddn2, etc.)
+    # Group by appliance: try -vm\d+ suffix first (digipfs1-vm01 -> digipfs1),
+    # then DDN pattern (sc1-ddn1-vm0 -> sc1-ddn1)
     groups = defaultdict(list)
     for node in nodes:
-        m = re.match(r'^(.*-ddn\d+)', node["hostname"])
+        m = re.match(r'^(.*)-vm\d+', node["hostname"]) or             re.match(r'^(.*-ddn\d+)', node["hostname"])
         key = m.group(1) if m else None
         if key:
             groups[key].append(node["hostname"])
@@ -442,6 +443,25 @@ def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
                 last  = hostnames[min(i+chunk-1, len(hostnames)-1)].split("-")[-1]
                 groups[f"{first}-{last}"] = hostnames[i:i+chunk]
 
+    # If any appliance group is too wide, chunk into sub-rows of 8
+    MAX_COLS = 4
+    chunked = {}
+    for appl, hostnames in groups.items():
+        hostnames = sorted(hostnames)
+        if len(hostnames) > MAX_COLS:
+            for i in range(0, len(hostnames), MAX_COLS):
+                chunk = hostnames[i:i+MAX_COLS]
+                first_m = re.search(r'vm(\d+)', chunk[0])
+                last_m  = re.search(r'vm(\d+)', chunk[-1])
+                if first_m and last_m:
+                    label = f"vm{first_m.group(1)}-{last_m.group(1)}"
+                else:
+                    label = f"{appl}-{i//MAX_COLS + 1}"
+                chunked[label] = chunk
+        else:
+            chunked[appl] = hostnames
+    groups = chunked
+
     appliances = sorted(groups.keys())
     cols = max(len(v) for v in groups.values())
     rows = len(appliances)
@@ -450,7 +470,7 @@ def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
     elif cols > 8:  cell_w, cell_h = 42, 32
     else:           cell_w, cell_h = 52, 36
     pad_x, pad_y = 8, 28
-    label_w = 60
+    label_w = 72  # wider for vm09-16 style labels
     width  = pad_x * 2 + cols * cell_w + (cols - 1) * 3 + label_w
     height = pad_y + rows * cell_h + (rows - 1) * 4 + 20
 
@@ -463,17 +483,26 @@ def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
     flag_lookup = {n["hostname"]: n["overall_flag"] for n in nodes}
     svgs = []
 
+    # Column headers from first appliance's sorted hostnames
+    first_appl_hosts = sorted(groups[appliances[0]])
     for ci in range(cols):
-        x = pad_x + 56 + ci * (cell_w + 4) + cell_w // 2
-        svgs.append(f'<text x="{x}" y="16" text-anchor="middle" font-size="9" fill="{C["muted"]}">vm{ci}</text>')
+        if ci < len(first_appl_hosts):
+            import re as _re2
+            m = _re2.search(r'vm(\d+)', first_appl_hosts[ci])
+            col_label = f"vm{m.group(1)}" if m else f"vm{ci}"
+        else:
+            col_label = f"vm{ci}"
+        x = pad_x + label_w + ci * (cell_w + 3) + cell_w // 2
+        svgs.append(f'<text x="{x}" y="16" text-anchor="middle" font-size="9" fill="{C["muted"]}">{col_label}</text>')
 
     for ri, appl in enumerate(appliances):
         y     = pad_y + ri * (cell_h + 4)
-        short = appl.split("-")[-1]
-        svgs.append(f'<text x="{pad_x+50}" y="{y + cell_h//2 + 4}" text-anchor="end" font-size="10" fill="#94a3b8">{short}</text>')
+        # Use full label for vm ranges (vm01-08), short suffix for ddn appliances
+        short = appl if re.match(r'^vm\d+', appl) else appl.split("-")[-1]
+        svgs.append(f'<text x="{pad_x + label_w - 4}" y="{y + cell_h//2 + 4}" text-anchor="end" font-size="10" fill="#94a3b8">{short}</text>')
 
         for ci, hostname in enumerate(sorted(groups[appl])):
-            x     = pad_x + 56 + ci * (cell_w + 4)
+            x     = pad_x + label_w + ci * (cell_w + 3)
             load  = load_data.get(hostname, 0)
             color = load_color(load)
             flag  = flag_lookup.get(hostname, "OK")
@@ -995,6 +1024,7 @@ def render_visual_header(nodes: list[dict], report_dir: Path) -> str:
 </div>"""
 
     return f"""<div class="vsummary">
+  <div class="vsummary-left">
   {panel("Node Status", donut)}
   {panel("Memory Pressure", mem_g)}
   {panel("CPU Load", load_g)}
@@ -1009,6 +1039,7 @@ def render_visual_header(nodes: list[dict], report_dir: Path) -> str:
       <div style="font-size:11px;color:{C['muted']};margin-top:4px">Warnings</div>
     </div>
   </div>''')}
+  </div>
   <div class="vsummary-panel wide">
     <div class="vsummary-title">Load Heatmap <span style="font-size:10px;color:{C['muted']}">(click → node card)</span></div>
     {heatmap}
@@ -1031,16 +1062,20 @@ pre {{ background: #0a0e17; padding: 8px; border-radius: 4px; overflow-x: auto; 
 
 /* Visual summary */
 .vsummary {{
-  display: flex; flex-wrap: wrap; gap: 12px;
+  display: flex; flex-wrap: nowrap; gap: 12px;
   padding: 16px 20px; background: #111827;
-  border-bottom: 1px solid {C['border']}; align-items: stretch;
+  border-bottom: 1px solid {C['border']}; align-items: flex-start;
+}}
+.vsummary-left {{
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1 1 auto;
 }}
 .vsummary-panel {{
   background: {C['card']}; border: 1px solid {C['border']}; border-radius: 8px;
   padding: 12px 16px; display: flex; flex-direction: column; align-items: center;
-  flex: 1 1 160px; max-width: 210px; min-width: 150px;
+  overflow: visible;
 }}
-.vsummary-panel.wide {{ flex: 1 1 280px; max-width: 340px; }}
+.vsummary-panel.wide {{ flex: 0 0 auto; width: 300px; overflow: visible; padding-right: 20px; }}
+.vsummary svg {{ overflow: visible; }}
 .vsummary-title {{
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
   color: {C['muted']}; font-weight: 600; margin-bottom: 8px; text-align: center;
