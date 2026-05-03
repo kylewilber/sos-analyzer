@@ -11,3 +11,4 @@ reports/
 *.prev
 *.prev2
 sos-analyzer/
+.DS_Store
