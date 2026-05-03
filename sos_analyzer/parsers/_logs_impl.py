@@ -54,7 +54,9 @@ NOISE_PAT = re.compile(
     r'|locking_type.*deprecated'
     r'|dracut-initqueue.*WARNING'
     r'|SATA link down'
-    r'|ata[0-9].*: failed to resume link',
+    r'|ata[0-9].*: failed to resume link'
+    r'|Quorum acquired'
+    r'|notice: Quorum',
     re.IGNORECASE
 )
 
@@ -102,13 +104,23 @@ CRIT_PAT = re.compile(
     r'|LustreError.*osd'
     r'|LustreError.*ldiskfs'
     r'|LustreError.*timeout.*local'
-    r'|LustreError.*lost.*conn.*local',
+    r'|LustreError.*lost.*conn.*local'
+    r'|LustreError.*not available for connect'
+    r'|LustreError.*operation.*failed.*rc'
+    r'|LustreError.*mount.*failed'
+    r'|LustreError.*evicting client'
+    r'|pacemaker.*error',
     re.IGNORECASE
 )
 
 WARN_PAT = re.compile(
     r'WARNING:'
     r'|warn_slowpath'
+    r'|Quorum lost'
+    r'|Quorum acquired'
+    r'|Blind faith.*fencing'
+    r'|Primary configuration corrupt'
+    r'|pacemaker.*warning'
     r'|soft lockup'
     r'|hung_task'
     r'|link is not ready'
@@ -196,6 +208,16 @@ def process_log(filepath, prefix=""):
 msg_file = os.path.join(sos_root, 'var', 'log', 'messages')
 if os.path.isfile(msg_file):
     process_log(msg_file)
+
+# Parse lustre.log if present
+lustre_log = os.path.join(sos_root, 'var', 'log', 'lustre.log')
+if os.path.isfile(lustre_log):
+    process_log(lustre_log, prefix='[lustre] ')
+
+# Parse pacemaker.log if present
+pacemaker_log = os.path.join(sos_root, 'var', 'log', 'pacemaker.log')
+if os.path.isfile(pacemaker_log):
+    process_log(pacemaker_log, prefix='[pacemaker] ')
 
 # Find kern log — equivalent of: ls $SOS/var/log/kern/* | head -1
 kern_dir = os.path.join(sos_root, 'var', 'log', 'kern')

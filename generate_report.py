@@ -40,7 +40,7 @@ OUTPUT_FILE = "cluster_report_ai.html"
 
 MAX_CRIT_EVENTS   = 5
 MAX_CLIENT_EVENTS = 5
-MAX_EVENT_LEN     = 150
+MAX_EVENT_LEN     = 250
 
 # ─── Colors ───────────────────────────────────────────────────────────────────
 
@@ -640,17 +640,27 @@ def render_log_section(node: dict) -> str:
         from collections import Counter
         import re as _re
         def normalize(e):
-            # Strip timestamp and hostname prefix
-            m = _re.sub(r'^\S+ \S+ \S+ ', '', str(e))
-            # Strip PIDs: word[1234]: -> word:
+            m = str(e)
+            # Strip [lustre] [pacemaker] source prefix we add
+            m = _re.sub(r'^\[\w+\] ', '', m)
+            # Strip timestamp and hostname (up to 3 space-separated tokens)
+            m = _re.sub(r'^\S+ \S+ \S+ ', '', m)
+            # Strip process name and PID: pacemaker-based[41503]:  -> (empty)
+            m = _re.sub(r'^\S+\[\d+\]:?\s*', '', m)
+            # Strip remaining PIDs anywhere in line
             m = _re.sub(r'\[\d+\]', '', m)
-            # Normalize device names, IPs, hex addresses
+            # Strip leading severity label: warning: notice: error:
+            m = _re.sub(r'^\s*(warning|notice|error|info|warn):\s*', '', m, flags=_re.IGNORECASE)
+            # Normalize IPs, devices, hex, interfaces
             m = _re.sub(r'\b\d+\.\d+\.\d+\.\d+\b', '<IP>', m)
             m = _re.sub(r'\b(ata|sda|sdb|sdc|sdd|sde|sdf|sdg|sdh)\d*\b', '<dev>', m)
             m = _re.sub(r'0x[0-9a-fA-F]+', '<hex>', m)
-            # Normalize interface names
-            m = _re.sub(r'\b(eno|ens|enp|eth|bond|mlxib|mlx5|ib\d|usermode|virbr)\w*\b', '<iface>', m)
-            return m.strip()[:120]
+            m = _re.sub(r'\b(eno\d|ens\d|enp\d|eth\d|bond\d|mlxib\d|mlx5_\d|ib\d|usermode|virbr\d)\w*\b', '<iface>', m)
+            m = _re.sub(r'/var/[\w/._-]+', '<path>', m)  # normalize paths
+            m = _re.sub(r'/dev/[\w/._-]+', '<dev>', m)
+            m = _re.sub(r'/etc/[\w/._-]+', '<path>', m)
+            m = _re.sub(r'/run/[\w/._-]+', '<path>', m)
+            return m.strip()[:80]
         groups = Counter(normalize(e) for e in warn_events)
         warn_total = node.get("log_warnings", len(warn_events))
         warn_label = f'<div style="font-size:11px;color:{C["warning"]};margin-top:6px;margin-bottom:2px">{warn_total} warnings ({len(groups)} unique patterns, showing top {min(8,len(groups))}):</div>'
