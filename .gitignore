@@ -8,3 +8,6 @@ build/
 reports/
 *.tar.gz
 *.tar.xz
+*.prev
+*.prev2
+sos-analyzer/
