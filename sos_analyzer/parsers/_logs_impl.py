@@ -45,7 +45,10 @@ NOISE_PAT = re.compile(
     r'|session.*Succeeded'
     r'|New session'
     r'|Started Session'
-    r'|Removed session',
+    r'|Removed session'
+    r'|LAPIC_NMI'
+    r'|mounted filesystem with'
+    r'|mounting filesystem',
     re.IGNORECASE
 )
 
@@ -84,8 +87,8 @@ CRIT_PAT = re.compile(
     r'|hardware error'
     r'|MCE'
     r'|Machine Check'
-    r'|NMI'
-    r'|ldiskfs.*error'
+    r'|NMI received'
+    r'|ldiskfs.*error[^s=]'
     r'|osd.*error'
     r'|journal.*error'
     r'|disk.*error'
