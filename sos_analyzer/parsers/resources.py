@@ -52,6 +52,31 @@ def parse(sos_root: Path, out_dir: Path) -> dict:
                         cpu_iowait = parts[5]
                         cpu_idle   = parts[-1]
                     break
+        else:
+            # Fall back to XML SAR files (some systems only collect XML format)
+            import xml.etree.ElementTree as ET
+            xml_files = sorted(sar_dir.glob("sa*.xml"))
+            if xml_files:
+                try:
+                    tree = ET.parse(xml_files[-1])
+                    usr_vals = []; sys_vals = []; iowait_vals = []; idle_vals = []
+                    NS = "{http://pagesperso-orange.fr/sebastien.godard/sysstat}"
+                    for cpu in tree.iter(NS + "cpu"):
+                        if cpu.get("number") == "all":
+                            try:
+                                usr_vals.append(float(cpu.get("usr", 0)))
+                                sys_vals.append(float(cpu.get("sys", 0)))
+                                iowait_vals.append(float(cpu.get("iowait", 0)))
+                                idle_vals.append(float(cpu.get("idle", 0)))
+                            except (ValueError, TypeError):
+                                pass
+                    if usr_vals:
+                        cpu_usr    = f"{sum(usr_vals)/len(usr_vals):.2f}"
+                        cpu_sys    = f"{sum(sys_vals)/len(sys_vals):.2f}"
+                        cpu_iowait = f"{sum(iowait_vals)/len(iowait_vals):.2f}"
+                        cpu_idle   = f"{sum(idle_vals)/len(idle_vals):.2f}"
+                except Exception:
+                    pass
 
     # ── Disk ──
     # Read cpu_count for load normalization (best effort)
