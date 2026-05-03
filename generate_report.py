@@ -254,7 +254,7 @@ def compute_correlations(nodes: list[dict]) -> dict:
     # OST fill stats
     ost_pcts = [
         d["used_pct"] for n in nodes for d in n.get("disks", [])
-        if "/lustre/" in str(d.get("mount", "")) and "ost" in str(d.get("mount", ""))
+        if "ost" in str(d.get("mount", "")).lower()
     ]
     if ost_pcts:
         findings["ost_fill_stats"] = {
@@ -413,14 +413,23 @@ def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
         if key:
             groups[key].append(node["hostname"])
 
-    # Fallback: chunk into rows of 4 (e.g. digipfs1-vm01..vm56)
+    # Fallback: group by role suffix (-oss, -mds, -mgs, etc.)
     if not groups:
-        hostnames = sorted(n["hostname"] for n in nodes)
-        chunk = 4
-        for i in range(0, len(hostnames), chunk):
-            first = hostnames[i].split("-")[-1]
-            last  = hostnames[min(i+chunk-1, len(hostnames)-1)].split("-")[-1]
-            groups[f"{first}-{last}"] = hostnames[i:i+chunk]
+        import re as _re
+        for node in nodes:
+            # Try to extract role suffix: alcyone-oss -> oss, maia-mgs -> mgs
+            m = _re.search(r'-(oss|mds|mgs|client|nid|\w+)$', node["hostname"])
+            key = m.group(1) if m else "unknown"
+            groups[key].append(node["hostname"])
+        # If everything still ends up in one group, chunk by 4
+        if len(groups) == 1 and list(groups.keys())[0] == "unknown":
+            groups.clear()
+            hostnames = sorted(n["hostname"] for n in nodes)
+            chunk = 4
+            for i in range(0, len(hostnames), chunk):
+                first = hostnames[i].split("-")[-1]
+                last  = hostnames[min(i+chunk-1, len(hostnames)-1)].split("-")[-1]
+                groups[f"{first}-{last}"] = hostnames[i:i+chunk]
 
     appliances = sorted(groups.keys())
     cols = max(len(v) for v in groups.values())
@@ -924,7 +933,8 @@ def render_visual_header(nodes: list[dict], report_dir: Path) -> str:
     max_load   = max(load_data.values(), default=0)
     max_load_h = max(load_data, key=load_data.get) if load_data else ""
     cpu_count  = next((int(str(n.get("cpu_count", 24))) for n in nodes), 24)
-    load_pct   = min(round((avg_load / cpu_count) * 100, 1), 100)
+    # Normalize load: use 4x cpu_count as 100% ceiling (storage nodes run high load normally)
+    load_pct   = min(round((avg_load / max(cpu_count * 4, 1)) * 100, 1), 100)
 
     # OST fill from resources.json
     ost_fills = []
@@ -934,7 +944,7 @@ def render_visual_header(nodes: list[dict], report_dir: Path) -> str:
             res = load_json(node_dir / "resources.json")
             for d in res.get("disk", []):
                 mount = d.get("mount", "")
-                if "/lustre/" in mount and "ost" in mount:
+                if "ost" in mount.lower():
                     ost_fills.append({
                         "used_pct": d.get("used_pct", 0),
                         "used_tb":  round(d.get("used_gb", 0) / 1024, 1),
