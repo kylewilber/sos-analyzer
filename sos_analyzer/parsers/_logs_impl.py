@@ -109,7 +109,8 @@ CRIT_PAT = re.compile(
     r'|LustreError.*operation.*failed.*rc'
     r'|LustreError.*mount.*failed'
     r'|LustreError.*evicting client'
-    r'|pacemaker.*error',
+    r'|pacemaker.*error'
+    r'|Quorum lost',
     re.IGNORECASE
 )
 
@@ -208,16 +209,6 @@ def process_log(filepath, prefix=""):
 msg_file = os.path.join(sos_root, 'var', 'log', 'messages')
 if os.path.isfile(msg_file):
     process_log(msg_file)
-
-# Parse lustre.log if present
-lustre_log = os.path.join(sos_root, 'var', 'log', 'lustre.log')
-if os.path.isfile(lustre_log):
-    process_log(lustre_log, prefix='[lustre] ')
-
-# Parse pacemaker.log if present
-pacemaker_log = os.path.join(sos_root, 'var', 'log', 'pacemaker.log')
-if os.path.isfile(pacemaker_log):
-    process_log(pacemaker_log, prefix='[pacemaker] ')
 
 # Find kern log — equivalent of: ls $SOS/var/log/kern/* | head -1
 kern_dir = os.path.join(sos_root, 'var', 'log', 'kern')

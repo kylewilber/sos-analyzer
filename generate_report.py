@@ -38,7 +38,7 @@ OLLAMA_URL  = "http://172.16.0.252:11434/api/generate"
 MODEL       = "qwen3-coder:30b"
 OUTPUT_FILE = "cluster_report_ai.html"
 
-MAX_CRIT_EVENTS   = 5
+MAX_CRIT_EVENTS   = 25
 MAX_CLIENT_EVENTS = 5
 MAX_EVENT_LEN     = 250
 
@@ -331,6 +331,29 @@ def compute_correlations(nodes: list[dict]) -> dict:
     if tz_map and len(set(tz_map.values())) > 1:
         findings["sfa_tz_mismatch"] = tz_map
 
+    # ── Active Outage Indicators ──────────────────────────────────────────────
+    import re as _re_outage
+    outage_patterns = {
+        "Cluster quorum lost":       r'Quorum lost',
+        "Kernel panic":              r'Kernel panic|kernel panic',
+        "OOM kill":                  r'oom_kill|Out of memory.*kill',
+        "Lustre target unavailable": r'LustreError.*not available for connect',
+        "Lustre RPC failures":       r'LustreError.*operation.*failed.*rc',
+        "Lustre device eviction":    r'LustreError.*evicting client',
+    }
+    outage_findings = {}
+    for label, pattern in outage_patterns.items():
+        affected = []
+        for n in nodes:
+            for ev in n.get("critical_events", []):
+                if _re_outage.search(pattern, str(ev)):
+                    if n["hostname"] not in affected:
+                        affected.append(n["hostname"])
+                    break
+        if affected:
+            outage_findings[label] = affected
+    if outage_findings:
+        findings["active_outage_indicators"] = outage_findings
     return findings
 
 
@@ -842,6 +865,35 @@ def render_anomaly_card(title: str, severity: str, content: str) -> str:
 
 def render_anomaly_panel(correlations: dict) -> str:
     cards = ""
+
+    if "active_outage_indicators" in correlations:
+        findings = correlations["active_outage_indicators"]
+        rows = ""
+        for label, hosts in findings.items():
+            shown = hosts[:8]
+            extra = len(hosts) - len(shown)
+            uid = escape(label.replace(" ", "_").lower())
+            host_str = ", ".join(f"<b>{h}</b>" for h in shown)
+            if extra:
+                info_c = C['info']
+                rest = ', '.join(f'<b>{h}</b>' for h in hosts[8:])
+                host_str += (
+                    f" <span style='color:{info_c};cursor:pointer;font-size:11px'"
+                    f" onclick=\"this.style.display='none';"
+                    f"document.getElementById('outage_{uid}').style.display='inline'\">"
+                    f"+{extra} more</span>"
+                    f"<span id='outage_{uid}' style='display:none'>, {rest}</span>"
+                )
+            crit_c = C['critical']
+            rows += (
+                f"<tr><td style='padding:4px 8px;font-weight:600;color:{crit_c};"
+                f"white-space:nowrap;vertical-align:top'>{escape(label)}</td>"
+                f"<td style='padding:4px 8px'>{host_str}</td></tr>"
+            )
+        cards += render_anomaly_card(
+            "⚡ Active Outage Indicators", "CRITICAL",
+            f"<table style='width:100%;border-collapse:collapse;font-size:12px'>{rows}</table>"
+        )
 
     if "log_critical_outliers" in correlations:
         c = correlations["log_critical_outliers"]
