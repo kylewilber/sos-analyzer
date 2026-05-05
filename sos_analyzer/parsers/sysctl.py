@@ -46,20 +46,29 @@ PARAMS = [
 # ─── Recommended values for Lustre OSS/MDS nodes ─────────────────────────────
 
 RECOMMENDED: dict[str, str] = {
-    "vm.swappiness":                          "10",
-    "vm.zone_reclaim_mode":                   "0",
-    "vm.numa_stat":                           "1",
-    "kernel.numa_balancing":                  "0",
-    "net.ipv4.tcp_timestamps":                "0",
-    "net.ipv4.tcp_low_latency":               "1",
-    "net.ipv4.tcp_slow_start_after_idle":     "0",
-    "net.ipv4.conf.mgmt0.accept_redirects":   "0",
-    "net.ipv4.conf.mgmt0.secure_redirects":   "0",
-    "net.ipv4.conf.mlxib0.accept_redirects":  "0",
-    "net.ipv4.conf.mlxib0.secure_redirects":  "0",
-    "net.ipv4.conf.mlxib1.accept_redirects":  "0",
-    "net.ipv4.conf.mlxib1.secure_redirects":  "0",
-    "kernel.hung_task_warnings":              "10",
+    # EMF-managed TCP/network params (EXAScaler 6.x)
+    "net.ipv4.tcp_timestamps":                    "0",
+    "net.ipv4.tcp_low_latency":                   "1",
+    "net.ipv4.tcp_sack":                          "1",
+    "net.ipv4.tcp_window_scaling":                "1",
+    "net.core.netdev_max_backlog":                "250000",
+    "net.core.rmem_max":                          "16777216",
+    "net.core.wmem_max":                          "16777216",
+    # EMF-managed security params
+    "net.ipv4.conf.all.accept_redirects":         "0",
+    "net.ipv4.conf.all.secure_redirects":         "0",
+    "net.ipv4.conf.default.accept_redirects":     "0",
+    "net.ipv4.conf.default.secure_redirects":     "0",
+    # EMF-managed kernel params
+    "kernel.hung_task_timeout_secs":              "90",
+    "kernel.nmi_watchdog":                        "0",
+    "kernel.unknown_nmi_panic":                   "1",
+    # DDN-tuned OS params (deviate from RHEL defaults)
+    "kernel.numa_balancing":                      "0",
+    "vm.swappiness":                              "30",
+    "vm.dirty_ratio":                             "30",
+    "vm.dirty_background_ratio":                  "10",
+    "vm.zone_reclaim_mode":                       "0",
 }
 
 SECURITY_PARAMS = {k for k in RECOMMENDED if "redirect" in k}
