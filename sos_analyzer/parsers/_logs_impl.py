@@ -55,6 +55,10 @@ NOISE_PAT = re.compile(
     r'|dracut-initqueue.*WARNING'
     r'|SATA link down'
     r'|ata[0-9].*: failed to resume link'
+    r'|systemd-journal-gatewayd'
+    r'|microhttpd'
+    r'|emf.*WARNING.*sensitive data'
+    r'|This command may collect sensitive'
     r'|Quorum acquired'
     r'|notice: Quorum',
     re.IGNORECASE
