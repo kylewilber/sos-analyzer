@@ -41,6 +41,7 @@ def aggregate(nodes_dir: Path, out_dir: Path) -> dict:
             log.get("flag", "OK"),
             lus.get("flag", "OK"),
             sfa.get("flag", "OK") if sfa.get("available") else "OK",
+            sysctl.get("flag", "OK") if sysctl.get("available") else "OK",
         ]
         overall = worst_flag(*flags)
 
