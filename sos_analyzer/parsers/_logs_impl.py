@@ -173,9 +173,20 @@ def process_log(filepath, prefix=""):
     # but the file handle is managed for you.
     # errors='replace' handles non-UTF8 bytes gracefully instead of crashing.
     try:
+        import re as _re_ts, datetime as _dt
+        ISO_TS = _re_ts.compile(r'^(\d{4}-\d{2}-\d{2})T')
         with open(filepath, errors='replace') as fh:
             for line in fh:
                 line = line.rstrip('\n')  # strip trailing newline, like chomp
+                # Skip lines older than cutoff date
+                if cutoff_dt is not None:
+                    m = ISO_TS.match(line)
+                    if m:
+                        try:
+                            if _dt.date.fromisoformat(m.group(1)) < cutoff_dt:
+                                continue
+                        except Exception:
+                            pass
 
                 # First-pass filter — skip lines that can't match anything
                 # This is the equivalent of the outer grep in the bash version
@@ -210,6 +221,21 @@ def process_log(filepath, prefix=""):
         print(f"Warning: could not read {filepath}: {e}", file=sys.stderr)
 
 # ─── Parse log files ──────────────────────────────────────────────────────────
+# Determine collection date for log age filtering
+import datetime
+cutoff_dt = None
+date_file = os.path.join(sos_root, 'date')
+if os.path.isfile(date_file):
+    try:
+        date_txt = open(date_file).read()
+        import re as _re_date
+        m = _re_date.search(r'Universal time:\s+\w+\s+(\d{4}-\d{2}-\d{2})', date_txt)
+        if m:
+            coll_date = datetime.date.fromisoformat(m.group(1))
+            cutoff_dt = coll_date - datetime.timedelta(days=30)
+    except Exception:
+        pass
+
 msg_file = os.path.join(sos_root, 'var', 'log', 'messages')
 if os.path.isfile(msg_file):
     process_log(msg_file)
