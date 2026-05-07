@@ -163,6 +163,8 @@ def load_node(node_dir: Path) -> dict:
         "exa_version":        exa.get("version"),
         "exa_filesystems":    exa.get("filesystems", []),
         "exa_param_drift":    exa.get("param_drift", []),
+        "exa_ha_groups":      exa.get("ha_groups", []),
+        "exa_sfa_names":      exa.get("sfa_names", []),
         "sysctl_drift_count": sysctl.get("drift_count", 0),
         "sysctl_drift":       sysctl_drift,
 
@@ -447,25 +449,40 @@ def donut_chart(n_crit, n_warn, n_ok, total, width=200, height=170):
 
 
 def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
-    # Group by appliance: try -vm\d+ suffix first (digipfs1-vm01 -> digipfs1),
-    # then DDN pattern (sc1-ddn1-vm0 -> sc1-ddn1)
     groups = defaultdict(list)
-    for node in nodes:
-        m = re.match(r'^(.*)-vm\d+', node["hostname"]) or             re.match(r'^(.*-ddn\d+)', node["hostname"])
-        key = m.group(1) if m else None
-        if key:
-            groups[key].append(node["hostname"])
 
-    # Fallback: group by role suffix (-oss, -mds, -mgs, etc.)
-    if not groups:
-        import re as _re
+    # Priority 1: EXAScaler HA group -> SFA appliance name
+    exa_map = {}
+    for node in nodes:
+        ha_groups = node.get("exa_ha_groups", [])
+        sfa_names = node.get("exa_sfa_names", [])
+        if ha_groups and sfa_names:
+            for gi, group in enumerate(ha_groups):
+                sfa_name = sfa_names[gi] if gi < len(sfa_names) else f"appliance-{gi+1}"
+                for h in group:
+                    exa_map[h] = sfa_name
+
+    if exa_map:
         for node in nodes:
-            # Try to extract role suffix: alcyone-oss -> oss, maia-mgs -> mgs
-            m = _re.search(r'-(oss|mds|mgs|client|nid|\w+)$', node["hostname"])
-            key = m.group(1) if m else "unknown"
+            key = exa_map.get(node["hostname"])
+            if key:
+                groups[key].append(node["hostname"])
+    else:
+        # Priority 2: DDN VM/appliance naming patterns
+        for node in nodes:
+            m = (re.match(r'^(.*)-vm\d+', node["hostname"]) or
+                 re.match(r'^(.*-ddn\d+)', node["hostname"]) or
+                 re.match(r'^([a-zA-Z]+)\d+$', node["hostname"]))
+            key = m.group(1) if m else None
+            if key:
+                groups[key].append(node["hostname"])
+
+    # Fallback: group by derived role
+    if not groups:
+        for node in nodes:
+            key = node_role(node)
             groups[key].append(node["hostname"])
-        # If everything still ends up in one group, chunk by 4
-        if len(groups) == 1 and list(groups.keys())[0] == "unknown":
+        if len(groups) <= 1:
             groups.clear()
             hostnames = sorted(n["hostname"] for n in nodes)
             chunk = 4
@@ -473,8 +490,6 @@ def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
                 first = hostnames[i].split("-")[-1]
                 last  = hostnames[min(i+chunk-1, len(hostnames)-1)].split("-")[-1]
                 groups[f"{first}-{last}"] = hostnames[i:i+chunk]
-
-    # If any appliance group is too wide, chunk into sub-rows of 8
     MAX_COLS = 4
     chunked = {}
     for appl, hostnames in groups.items():
@@ -519,8 +534,8 @@ def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
     for ci in range(cols):
         if ci < len(first_appl_hosts):
             import re as _re2
-            m = _re2.search(r'vm(\d+)', first_appl_hosts[ci])
-            col_label = f"vm{m.group(1)}" if m else f"vm{ci}"
+            m = _re2.search(r'vm(\d+)', first_appl_hosts[ci]) or _re2.search(r'(\d+)$', first_appl_hosts[ci])
+            col_label = m.group(1) if m else f"col{ci}"
         else:
             col_label = f"vm{ci}"
         x = pad_x + label_w + ci * (cell_w + 3) + cell_w // 2
@@ -529,7 +544,11 @@ def load_heatmap(load_data: dict, nodes: list[dict]) -> str:
     for ri, appl in enumerate(appliances):
         y     = pad_y + ri * (cell_h + 4)
         # Use full label for vm ranges (vm01-08), short suffix for ddn appliances
-        short = appl if re.match(r'^vm\d+', appl) else appl.split("-")[-1]
+        # Use full label for vm ranges and SFA appliance names, short suffix otherwise
+        if re.match(r'^vm\d+', appl) or re.match(r'^[a-z]+-[0-9a-z]+-[a-z0-9]+$', appl):
+            short = appl
+        else:
+            short = appl.split("-")[-1]
         svgs.append(f'<text x="{pad_x + label_w - 4}" y="{y + cell_h//2 + 4}" text-anchor="end" font-size="10" fill="#94a3b8">{short}</text>')
 
         for ci, hostname in enumerate(sorted(groups[appl])):

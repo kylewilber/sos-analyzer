@@ -98,6 +98,7 @@ def parse(sos_root: Path, out_dir: Path, hostname: str = "") -> dict:
     result["version"] = cfg.get("version")
     result["filesystems"] = list(cfg.get("fs", {}).keys())
     result["ha_groups"] = cfg.get("HA", {}).get("groups", [])
+    result["sfa_names"] = list(cfg.get("sfa", {}).keys())
 
     # Extract set_param_tunings
     tunings = cfg.get("set_param_tunings", {})

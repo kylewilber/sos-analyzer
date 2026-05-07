@@ -83,6 +83,8 @@ def aggregate(nodes_dir: Path, out_dir: Path) -> dict:
             "exa_version":         exa.get("version"),
             "exa_filesystems":     exa.get("filesystems", []),
             "exa_param_drift":     exa.get("param_drift", []),
+            "exa_ha_groups":      exa.get("ha_groups", []),
+            "exa_sfa_names":      exa.get("sfa_names", []),
 
             "overall_flag":    overall,
         }
