@@ -149,6 +149,8 @@ def load_node(node_dir: Path) -> dict:
         "mdt_count":         lustre.get("mdt_count", 0),
         "ost_critical":      lustre.get("ost_critical", 0),
         "devices_down":      lustre.get("devices_down", 0),
+        "max_cached_mb":     lustre.get("max_cached_mb"),
+        "mem_total_gb":      res.get("memory", {}).get("total_gb"),
 
         "sfa_flag":             sfa.get("flag", "OK"),
         "sfa_tz_inconsistent":  sfa.get("tz_inconsistent", 0),
@@ -176,9 +178,11 @@ def node_role(node: dict) -> str:
     """Derive node role from lustre device counts."""
     ost = node.get("ost_count", 0)
     mdt = node.get("mdt_count", 0)
+    cached = node.get("max_cached_mb")
     if ost > 0 and mdt > 0: return "OSS+MDS"
     if ost > 0:              return "OSS"
     if mdt > 0:              return "MDS"
+    if cached is not None:   return "CLIENT"
     return "MGS"
 
 
@@ -787,6 +791,46 @@ def render_sysctl_section(node: dict) -> str:
 </table>"""
 
 
+def render_lustre_section(node: dict) -> str:
+    osts = node.get("ost_count", 0)
+    mdts = node.get("mdt_count", 0)
+    ost_crit = node.get("ost_critical", 0)
+    devices_down = node.get("devices_down", 0)
+    max_cached_mb = node.get("max_cached_mb")
+    mem_total_gb = node.get("mem_total_gb") or 0
+
+    lines = []
+
+    if osts or mdts:
+        lines.append(f"<p style='font-size:12px'><b>OSTs:</b> {osts} "
+                     f"{'<span style="color:' + C['critical'] + '">' + str(ost_crit) + ' critical</span>' if ost_crit else '✓'} &nbsp; "
+                     f"<b>MDTs:</b> {mdts} &nbsp; "
+                     f"<b>Devices down:</b> {'<span style="color:' + C['critical'] + '">' + str(devices_down) + '</span>' if devices_down else '0'}</p>")
+
+    if max_cached_mb is not None:
+        cached_gb = round(max_cached_mb / 1024, 1)
+        if mem_total_gb:
+            cache_pct = round(max_cached_mb / (mem_total_gb * 1024) * 100, 1)
+            color = C["critical"] if cache_pct > 30 else C["warning"] if cache_pct > 10 else C["ok"]
+            lines.append(
+                f"<p style='font-size:12px'><b>Client cache (max_cached_mb):</b> "
+                f"<span style='color:{color}'>{cached_gb} GB ({cache_pct}% of RAM)</span>"
+            )
+            if cache_pct > 10:
+                lines.append(
+                    f"<span style='font-size:11px;color:{C['muted']}'>"
+                    f" — Consider reducing to 32768 MB (32 GB) on shared compute nodes</span></p>"
+                )
+            else:
+                lines.append("</p>")
+        else:
+            lines.append(f"<p style='font-size:12px'><b>Client cache:</b> {cached_gb} GB</p>")
+
+    if not lines:
+        return f"<p style='color:{C['muted']}'>No Lustre target or client data available</p>"
+    return "".join(lines)
+
+
 def render_exascaler_section(node: dict) -> str:
     if node.get("exa_flag") == "N/A":
         return f"<p style='color:{C['muted']}'>No ExaScaler TOML found</p>"
@@ -856,6 +900,15 @@ def render_node_card(node: dict) -> str:
 </div>"""
 
     sections = ""
+    # Compute cache flag inline from max_cached_mb and mem_total_gb
+    _cached = node.get("max_cached_mb")
+    _mem_gb = node.get("mem_total_gb") or 0
+    _cache_flag = ""
+    if _cached and _mem_gb:
+        _pct = _cached / (_mem_gb * 1024) * 100
+        _cache_flag = "WARNING" if _pct > 30 else "INFO" if _pct > 10 else ""
+    lustre_badge = _cache_flag or node.get("lustre_flag","")
+    sections += collapsible("Lustre",            render_lustre_section(node),   lustre_badge)
     sections += collapsible("Disk Usage",       render_disk_section(node),     node.get("mem_flag",""))
     sections += collapsible("InfiniBand",        render_ib_section(node),       node.get("ib_flag",""))
     log_badge_flag = node.get("log_flag","")
@@ -923,6 +976,17 @@ def render_anomaly_card(title: str, severity: str, content: str) -> str:
 
 def render_anomaly_panel(correlations: dict) -> str:
     cards = ""
+
+    if "lustre_cache_warning" in correlations:
+        items = " &nbsp;·&nbsp; ".join(
+            f"<b>{h}</b>: {v['cached_gb']} GB ({v['pct']}% of RAM)"
+            for h, v in correlations["lustre_cache_warning"].items()
+        )
+        cards += render_anomaly_card(
+            "Lustre Client Cache — High Memory Usage", "WARNING",
+            f"<p style='font-size:12px'>{items}</p>"
+            f"<p style='font-size:11px;color:{C['muted']}'>Consider reducing max_cached_mb to 32768 (32 GB) on shared compute nodes</p>"
+        )
 
     if "active_outage_indicators" in correlations:
         findings = correlations["active_outage_indicators"]

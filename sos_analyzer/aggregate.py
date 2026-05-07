@@ -45,6 +45,19 @@ def aggregate(nodes_dir: Path, out_dir: Path) -> dict:
             sysctl.get("flag", "OK") if sysctl.get("available") else "OK",
             exa.get("flag", "OK") if exa.get("available") else "OK",
         ]
+        # Check Lustre client cache vs RAM — flag if >10% of total RAM
+        max_cached_mb = lus.get("max_cached_mb")
+        mem_total_gb = mem.get("total_gb", 0) or 0
+        cache_flag = "OK"
+        cache_pct = 0
+        if max_cached_mb and mem_total_gb:
+            mem_total_mb = mem_total_gb * 1024
+            cache_pct = round(max_cached_mb / mem_total_mb * 100, 1)
+            if cache_pct > 30:
+                cache_flag = "WARNING"
+            elif cache_pct > 10:
+                cache_flag = "INFO"
+
         overall = worst_flag(*flags)
 
         node = {
@@ -67,6 +80,9 @@ def aggregate(nodes_dir: Path, out_dir: Path) -> dict:
             "log_flag":        log.get("flag", "OK"),
 
             "lustre_flag":     lus.get("flag", "OK"),
+            "max_cached_mb":   lus.get("max_cached_mb"),
+            "lustre_cache_pct": cache_pct,
+            "lustre_cache_flag": cache_flag,
             "ost_count":       lus.get("ost_count", 0),
             "ost_critical":    lus.get("ost_critical", 0),
             "devices_down":    lus.get("devices_down", 0),

@@ -117,6 +117,27 @@ def parse(sos_root: Path, out_dir: Path) -> dict:
         "devices":      devices,
     }
 
+
+    # ── Lustre client cache (max_cached_mb) ──
+    max_cached_mb = None
+    params_all = sos_root / "sos_commands" / "lustre" / "params-all"
+    if params_all.exists():
+        for line in read_lines(params_all):
+            if line.startswith("max_cached_mb:"):
+                try:
+                    max_cached_mb = int(line.split(":", 1)[1].strip())
+                except (ValueError, IndexError):
+                    pass
+            elif "max_cached_mb=" in line and not line.startswith(" "):
+                try:
+                    val = line.split("=", 1)[1].strip()
+                    if val:
+                        max_cached_mb = int(val)
+                except (ValueError, IndexError):
+                    pass
+
+    result["max_cached_mb"] = max_cached_mb
+
     write_json(out_dir / "lustre.json", result)
 
     ost_txt = "\n".join(
@@ -127,6 +148,7 @@ def parse(sos_root: Path, out_dir: Path) -> dict:
         f"  {m['uuid']:<40} {m['used_pct']:>4}% ({m['used_tb']}/{m['total_tb']} TB) [{m['flag']}]"
         for m in mdts
     ) or "  (no MDT data)"
+
 
     (out_dir / "lustre.txt").write_text(
         f"=== LUSTRE ===\n"
