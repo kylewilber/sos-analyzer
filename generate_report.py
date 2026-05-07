@@ -668,13 +668,13 @@ def render_ib_section(node: dict) -> str:
 
 
 def render_log_section(node: dict) -> str:
-    events = node.get("critical_events", [])
+    events = list(reversed(node.get("critical_events", [])))
     crit   = node.get("log_critical", 0)
     warn   = node.get("log_warnings", 0)
     client = node.get("log_client_events", 0)
 
     summary = f"<p style='font-size:12px;color:{C['muted']}'>{crit} critical &nbsp;·&nbsp; {warn} warnings &nbsp;·&nbsp; {client} client events</p>"
-    warn_events = node.get("warning_events", [])
+    warn_events = list(reversed(node.get("warning_events", [])))
 
     if not events and not warn_events:
         return summary + f"<p style='color:{C['muted']}'>No event samples</p>"
