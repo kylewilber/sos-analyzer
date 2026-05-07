@@ -1,5 +1,5 @@
 """sos_analyzer parsers package"""
-from . import identity, resources, network, services, lustre, rpms, sfa, sysctl
+from . import identity, resources, network, services, lustre, rpms, sfa, sysctl, exascaler
 
 # logs.py already exists as parse_logs.py — import it as logs
 import importlib, sys

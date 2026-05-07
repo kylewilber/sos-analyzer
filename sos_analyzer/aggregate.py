@@ -30,6 +30,7 @@ def aggregate(nodes_dir: Path, out_dir: Path) -> dict:
         lus     = load_json(d / "lustre.json")
         sfa     = load_json(d / "sfa.json")
         sysctl  = load_json(d / "sysctl.json")
+        exa     = load_json(d / "exascaler.json")
 
         mem = res.get("memory", {})
         cpu = res.get("cpu", {})
@@ -42,6 +43,7 @@ def aggregate(nodes_dir: Path, out_dir: Path) -> dict:
             lus.get("flag", "OK"),
             sfa.get("flag", "OK") if sfa.get("available") else "OK",
             sysctl.get("flag", "OK") if sysctl.get("available") else "OK",
+            exa.get("flag", "OK") if exa.get("available") else "OK",
         ]
         overall = worst_flag(*flags)
 
@@ -76,6 +78,11 @@ def aggregate(nodes_dir: Path, out_dir: Path) -> dict:
 
             "sysctl_flag":         sysctl.get("flag", "N/A") if sysctl.get("available") else "N/A",
             "sysctl_drift_count":  sysctl.get("drift_count", 0),
+            "exa_flag":            exa.get("flag", "N/A") if exa.get("available") else "N/A",
+            "exa_drift_count":     exa.get("drift_count", 0),
+            "exa_version":         exa.get("version"),
+            "exa_filesystems":     exa.get("filesystems", []),
+            "exa_param_drift":     exa.get("param_drift", []),
 
             "overall_flag":    overall,
         }

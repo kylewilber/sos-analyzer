@@ -82,6 +82,7 @@ def load_node(node_dir: Path) -> dict:
     logs    = load_json(node_dir / "logs.json")
     sfa     = load_json(node_dir / "sfa.json")
     sysctl  = load_json(node_dir / "sysctl.json")
+    exa     = load_json(node_dir / "exascaler.json")
     lustre  = load_json(node_dir / "lustre.json")
 
     mem   = res.get("memory", {})
@@ -157,6 +158,11 @@ def load_node(node_dir: Path) -> dict:
 
         "sysctl_available":   sysctl.get("available", False),
         "sysctl_flag":        sysctl.get("flag", "N/A") if sysctl.get("available") else "N/A",
+        "exa_flag":           exa.get("flag", "N/A") if exa.get("available") else "N/A",
+        "exa_drift_count":    exa.get("drift_count", 0),
+        "exa_version":        exa.get("version"),
+        "exa_filesystems":    exa.get("filesystems", []),
+        "exa_param_drift":    exa.get("param_drift", []),
         "sysctl_drift_count": sysctl.get("drift_count", 0),
         "sysctl_drift":       sysctl_drift,
 
@@ -762,6 +768,37 @@ def render_sysctl_section(node: dict) -> str:
 </table>"""
 
 
+def render_exascaler_section(node: dict) -> str:
+    if node.get("exa_flag") == "N/A":
+        return f"<p style='color:{C['muted']}'>No ExaScaler TOML found</p>"
+    drift = node.get("exa_param_drift", [])
+    count = node.get("exa_drift_count", 0)
+    version = node.get("exa_version", "unknown")
+    filesystems = ", ".join(node.get("exa_filesystems", []))
+    header = (
+        f"<p style='font-size:12px'>"
+        f"<b>Version:</b> {escape(str(version))} &nbsp; "
+        f"<b>Filesystems:</b> {escape(filesystems)} &nbsp; "
+        f"<b>Param drift:</b> {count}</p>"
+    )
+    if not drift:
+        return header + f"<p style='color:{C['ok']}'>✓ All lctl params match TOML configuration</p>"
+    rows = ""
+    for d in drift:
+        rows += (
+            f"<tr><td style='font-family:monospace;font-size:12px'>{escape(d.get('param',''))}</td>"
+            f"<td style='color:{C['warning']};font-weight:600'>{escape(str(d.get('actual','')))}</td>"
+            f"<td style='color:{C['ok']}'>{escape(str(d.get('expected','')))}</td></tr>"
+        )
+    return header + (
+        f"<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+        f"<thead><tr style='color:{C['muted']}'>"
+        f"<th style='text-align:left;padding:4px'>Parameter</th>"
+        f"<th>Actual</th><th>Expected (TOML)</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 # ─── Node card ────────────────────────────────────────────────────────────────
 
 def render_node_card(node: dict) -> str:
@@ -809,6 +846,8 @@ def render_node_card(node: dict) -> str:
     sections += collapsible("Client NI Events",  render_client_ni_section(node))
     sections += collapsible("SFA",               render_sfa_section(node),      node.get("sfa_flag",""))
     sections += collapsible("Sysctl Tuning",     render_sysctl_section(node),   node.get("sysctl_flag",""))
+    if node.get("exa_flag") not in ("N/A", None):
+        sections += collapsible("EXAScaler Params", render_exascaler_section(node), node.get("exa_flag",""))
 
     role = node_role(node)
     role_color = {

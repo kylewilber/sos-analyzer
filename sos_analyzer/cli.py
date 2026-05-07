@@ -48,6 +48,7 @@ def parse_node(sos_root: Path, out_base: Path, conf_dir: Path) -> tuple[str, boo
         parsers.lustre.parse(sos_root, out_dir)
         parsers.sfa.parse(sos_root, out_dir)
         parsers.sysctl.parse(sos_root, out_dir)
+        parsers.exascaler.parse(sos_root, out_dir)
 
         # Node summary text
         summary_parts = []
